@@ -1,0 +1,18 @@
+{
+  "name": "proxy-performance-tester",
+  "version": "1.0.0",
+  "description": "Web-based tool to measure how a web proxy (e.g. Zscaler) affects latency and throughput.",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  },
+  "license": "MIT"
+}

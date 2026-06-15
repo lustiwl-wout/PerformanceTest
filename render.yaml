@@ -1,0 +1,13 @@
+# Render Blueprint - https://render.com/docs/blueprint-spec
+# Deploy with: connect this repo in the Render dashboard ("New" -> "Blueprint").
+services:
+  - type: web
+    name: proxy-performance-tester
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/info
+    envVars:
+      - key: NODE_VERSION
+        value: "20"

@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex" />
+  <title>Proxy Performance Tester</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>%E2%9A%A1</text></svg>" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">⚡</span>
+      <div>
+        <h1>Proxy Performance Tester</h1>
+        <p class="tagline">Meet de impact van je web-proxy (zoals Zscaler) op latency &amp; doorvoer</p>
+      </div>
+    </div>
+    <div class="conn" id="connBadge">
+      <span class="dot" id="connDot"></span>
+      <span id="connText">verbinden…</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- Controls -->
+    <section class="panel controls">
+      <div class="control-row">
+        <button id="runAll" class="btn btn-primary">▶ Alle tests uitvoeren</button>
+        <button id="saveSnapshot" class="btn" disabled>＋ Snapshot opslaan</button>
+        <div class="spacer"></div>
+        <details class="settings">
+          <summary>⚙ Instellingen</summary>
+          <div class="settings-grid">
+            <label>Ping-aantal
+              <input type="number" id="pingCount" value="25" min="3" max="200" />
+            </label>
+            <label>Download (MB)
+              <input type="number" id="downloadMb" value="25" min="1" max="500" />
+            </label>
+            <label>Upload (MB)
+              <input type="number" id="uploadMb" value="10" min="1" max="500" />
+            </label>
+          </div>
+        </details>
+      </div>
+      <div class="progress-wrap" id="progressWrap" hidden>
+        <div class="progress-label" id="progressLabel">Bezig…</div>
+        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+      </div>
+    </section>
+
+    <!-- Result cards -->
+    <section class="grid">
+      <!-- Latency -->
+      <article class="panel card" id="card-latency">
+        <header class="card-head">
+          <h2>🕒 Latency</h2>
+          <button class="btn btn-sm" data-test="latency">Test</button>
+        </header>
+        <div class="metric">
+          <span class="metric-value" id="lat-median">–</span>
+          <span class="metric-unit">ms mediaan</span>
+        </div>
+        <div class="submetrics" id="lat-sub">
+          <div><label>min</label><span id="lat-min">–</span></div>
+          <div><label>gem.</label><span id="lat-avg">–</span></div>
+          <div><label>p95</label><span id="lat-p95">–</span></div>
+          <div><label>max</label><span id="lat-max">–</span></div>
+          <div><label>jitter</label><span id="lat-jit">–</span></div>
+        </div>
+        <canvas id="lat-spark" class="spark" width="600" height="80"></canvas>
+        <p class="hint">Hoge mediaan of jitter wijst op proxy-overhead per request.</p>
+      </article>
+
+      <!-- Download -->
+      <article class="panel card" id="card-download">
+        <header class="card-head">
+          <h2>⬇ Download</h2>
+          <button class="btn btn-sm" data-test="download">Test</button>
+        </header>
+        <div class="metric">
+          <span class="metric-value" id="dl-mbps">–</span>
+          <span class="metric-unit">Mbit/s</span>
+        </div>
+        <div class="submetrics">
+          <div><label>TTFB</label><span id="dl-ttfb">–</span></div>
+          <div><label>data</label><span id="dl-size">–</span></div>
+          <div><label>tijd</label><span id="dl-time">–</span></div>
+          <div><label>MB/s</label><span id="dl-mbs">–</span></div>
+        </div>
+        <p class="hint">Lage doorvoer t.o.v. direct = throttling/SSL-inspectie.</p>
+      </article>
+
+      <!-- Upload -->
+      <article class="panel card" id="card-upload">
+        <header class="card-head">
+          <h2>⬆ Upload</h2>
+          <button class="btn btn-sm" data-test="upload">Test</button>
+        </header>
+        <div class="metric">
+          <span class="metric-value" id="ul-mbps">–</span>
+          <span class="metric-unit">Mbit/s</span>
+        </div>
+        <div class="submetrics">
+          <div><label>data</label><span id="ul-size">–</span></div>
+          <div><label>tijd</label><span id="ul-time">–</span></div>
+          <div><label>MB/s</label><span id="ul-mbs">–</span></div>
+          <div><label>server</label><span id="ul-srv">–</span></div>
+        </div>
+        <p class="hint">Uploads gaan vaak eerst door de proxy-buffer.</p>
+      </article>
+
+      <!-- Connection breakdown -->
+      <article class="panel card" id="card-conn">
+        <header class="card-head">
+          <h2>🔌 Verbinding</h2>
+          <button class="btn btn-sm" data-test="conn">Ververs</button>
+        </header>
+        <div class="bars" id="conn-bars">
+          <div class="bar-row"><label>DNS</label><div class="bar"><span id="bar-dns"></span></div><b id="val-dns">–</b></div>
+          <div class="bar-row"><label>TCP</label><div class="bar"><span id="bar-tcp"></span></div><b id="val-tcp">–</b></div>
+          <div class="bar-row"><label>TLS</label><div class="bar"><span id="bar-tls"></span></div><b id="val-tls">–</b></div>
+          <div class="bar-row"><label>TTFB</label><div class="bar"><span id="bar-ttfb"></span></div><b id="val-ttfb">–</b></div>
+        </div>
+        <p class="hint">Hoge <b>TLS</b>-tijd is dé indicator voor SSL-inspectie door de proxy.</p>
+      </article>
+
+      <!-- Proxy detection -->
+      <article class="panel card wide" id="card-proxy">
+        <header class="card-head">
+          <h2>🛡 Proxy-detectie</h2>
+          <button class="btn btn-sm" data-test="proxy">Ververs</button>
+        </header>
+        <div id="proxy-verdict" class="verdict verdict-unknown">Nog niet gecontroleerd</div>
+        <div class="kv" id="proxy-kv"></div>
+        <details class="raw-headers">
+          <summary>Alle ontvangen headers</summary>
+          <pre id="proxy-headers">–</pre>
+        </details>
+      </article>
+    </section>
+
+    <!-- Interpretation -->
+    <section class="panel" id="summaryPanel" hidden>
+      <h2>📋 Samenvatting &amp; interpretatie</h2>
+      <ul id="summaryList" class="summary-list"></ul>
+    </section>
+
+    <!-- Snapshots / comparison -->
+    <section class="panel">
+      <div class="card-head">
+        <h2>📊 Snapshots vergelijken</h2>
+        <button id="clearSnapshots" class="btn btn-sm btn-ghost">Wissen</button>
+      </div>
+      <p class="hint">
+        Draai de test <b>mét</b> proxy, sla op als snapshot, draai daarna <b>zónder</b>
+        (of vanaf een niet-gefilterd netwerk) en vergelijk hieronder.
+      </p>
+      <div class="table-wrap">
+        <table id="snapTable">
+          <thead>
+            <tr>
+              <th>Label</th><th>Tijd</th>
+              <th>Latency (ms)</th><th>Jitter</th>
+              <th>Download (Mbit/s)</th><th>Upload (Mbit/s)</th>
+              <th>TTFB</th><th>TLS</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="snapBody">
+            <tr class="empty"><td colspan="9">Nog geen snapshots opgeslagen.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Log -->
+    <section class="panel">
+      <details>
+        <summary class="log-summary">🪵 Logboek</summary>
+        <pre id="log" class="log"></pre>
+      </details>
+    </section>
+  </main>
+
+  <footer>
+    <span>Server: <code id="serverInfo">–</code></span>
+    <span>·</span>
+    <span>Tip: warm de server eerst op (Render free-tier slaapt na inactiviteit).</span>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
