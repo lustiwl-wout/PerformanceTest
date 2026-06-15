@@ -163,7 +163,11 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: upp
 td { font-family: var(--mono); }
 td:first-child, th:first-child { font-family: inherit; }
 tr.empty td { text-align: center; color: var(--muted); font-family: inherit; }
-.snap-del { background: transparent; border: none; color: var(--bad); cursor: pointer; font-size: 16px; }
+.snap-actions { white-space: nowrap; text-align: right; }
+.snap-edit, .snap-del { background: transparent; border: none; cursor: pointer; font-size: 16px; padding: 2px 6px; border-radius: 6px; }
+.snap-edit { color: var(--accent); }
+.snap-del { color: var(--bad); }
+.snap-edit:hover, .snap-del:hover { background: var(--panel-2); }
 
 /* ---- Log ---- */
 .log-summary { cursor: pointer; color: var(--muted); }

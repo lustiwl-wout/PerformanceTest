@@ -1,24 +1,24 @@
 # ⚡ Proxy Performance Tester
 
-Een kleine website om te meten of een web-proxy / SSL-inspectie-gateway (zoals
-**Zscaler**) performanceproblemen veroorzaakt. Je draait de test één keer **mét**
-proxy en één keer **zónder** (of vanaf een niet-gefilterd netwerk) en vergelijkt
-de cijfers.
+A small website to measure whether a web proxy / SSL-inspection gateway (such as
+**Zscaler**) causes performance problems. You run the test once **with** the
+proxy and once **without** (or from an unfiltered network) and compare the
+numbers.
 
-## Wat wordt er gemeten?
+## What is measured?
 
-| Test | Wat het zegt over de proxy |
-|------|----------------------------|
-| **Latency** (mediaan / p95 / jitter) | Per-request overhead. Veel kleine pings over één verbinding tonen de vaste vertraging die een proxy toevoegt. Hoge jitter = wisselende wachtrijvertraging. |
-| **Download** (Mbit/s + TTFB) | Doorvoer. Onversleutelbare random data, dus lage snelheid wijst op throttling of SSL-inspectie i.p.v. compressie. |
-| **Upload** (Mbit/s) | Doorvoer omhoog, vaak eerst door de proxy-buffer. |
-| **Verbinding** (DNS / TCP / **TLS** / TTFB) | De **TLS-handshaketijd** is dé indicator voor SSL-inspectie: bij interceptie zet de proxy een eigen TLS-sessie op, wat de handshake meetbaar verlengt. |
-| **Proxy-detectie** | Toont welke headers de server ontvangt (`Via`, `X-Forwarded-For`, Zscaler-headers, …) en de IP-keten, zodat je ziet of het verkeer écht door de proxy loopt. |
+| Test | What it tells you about the proxy |
+|------|-----------------------------------|
+| **Latency** (median / p95 / jitter) | Per-request overhead. Many small pings over a single connection reveal the fixed delay a proxy adds. High jitter = variable queueing delay. |
+| **Download** (Mbit/s + TTFB) | Throughput. Incompressible random data, so a low speed points to throttling or SSL inspection rather than compression. |
+| **Upload** (Mbit/s) | Upstream throughput, which often passes through the proxy buffer first. |
+| **Connection** (DNS / TCP / **TLS** / TTFB) | The **TLS handshake time** is the key indicator of SSL inspection: when intercepting, the proxy sets up its own TLS session, which measurably lengthens the handshake. |
+| **Proxy detection** | Shows which headers the server receives (`Via`, `X-Forwarded-For`, Zscaler headers, …) and the IP hop chain, so you can confirm the traffic really goes through the proxy. |
 
-De interpretatie is heuristisch — de **vergelijking** tussen snapshots is de
-echte conclusie.
+The interpretation is heuristic — the **comparison** between snapshots is the
+real conclusion.
 
-## Lokaal draaien
+## Run locally
 
 ```bash
 npm install
@@ -26,54 +26,57 @@ npm start
 # open http://localhost:3000
 ```
 
-## Deployen op Render.com
+## Deploy on Render.com
 
-Er zit een [`render.yaml`](./render.yaml) blueprint bij.
+A [`render.yaml`](./render.yaml) blueprint is included.
 
-1. Push deze repo naar GitHub.
-2. Render-dashboard → **New** → **Blueprint** → kies deze repo.
-3. Render leest `render.yaml`, bouwt met `npm install` en start met `npm start`.
+1. Push this repo to GitHub.
+2. Render dashboard → **New** → **Blueprint** → pick this repo.
+3. Render reads `render.yaml`, builds with `npm install` and starts with `npm start`.
 
-Handmatig kan ook (**New → Web Service**):
+Manual setup also works (**New → Web Service**):
 
 - **Runtime:** Node
 - **Build command:** `npm install`
 - **Start command:** `npm start`
 - **Health check path:** `/api/info`
 
-> De server luistert automatisch op `process.env.PORT` (door Render gezet).
+> The server automatically listens on `process.env.PORT` (set by Render).
 
-### Let op de Render free-tier
+### Mind the Render free tier
 
-Free-tier services gaan **slapen** na inactiviteit. De eerste request daarna
-heeft een cold-start van enkele seconden — dat is géén proxy-latency. Open de
-pagina, wacht tot de statusbadge "verbonden" toont en draai dan pas de test
-(de latency-test gooit de eerste meting sowieso weg).
+Free-tier services **sleep** after inactivity. The first request afterwards has
+a cold start of a few seconds — that is *not* proxy latency. Open the page, wait
+until the status badge shows "connected", and only then run the test (the latency
+test discards its first measurement anyway).
 
-## Hoe gebruik je het?
+## How to use it
 
-1. Open de site **via** je normale (Zscaler-)verbinding.
-2. Klik **"Alle tests uitvoeren"**.
-3. Klik **"Snapshot opslaan"** → label bv. `Met Zscaler`.
-4. Draai dezelfde test **zonder** de proxy (bypass / ander netwerk / hotspot) en
-   sla op als `Direct`.
-5. Vergelijk de rijen in de **Snapshots**-tabel. Grote verschillen in TLS-tijd,
-   latency-jitter of doorvoer wijzen op proxy-impact.
+1. Open the site **through** your normal (Zscaler) connection.
+2. Click **"Run all tests"**.
+3. Click **"Save snapshot"** → label it e.g. `With Zscaler`.
+4. Run the same test **without** the proxy (bypass / different network / hotspot)
+   and save it as `Direct`.
+5. Compare the rows in the **snapshots** table. Large differences in TLS time,
+   latency jitter or throughput point to proxy impact.
+
+> You can rename a saved snapshot's label any time with the ✎ button, or remove
+> it with ✕.
 
 ## Endpoints (API)
 
-| Endpoint | Doel |
-|----------|------|
-| `GET /api/ping` | Minimale respons voor latency-meting. |
-| `GET /api/download?bytes=N` | Streamt N bytes random data (max 500 MiB). |
-| `POST /api/upload` | Slokt de body op, rapporteert bytes + serverduur. |
-| `GET /api/headers` | Echo't ontvangen headers + IP-keten (proxy-detectie). |
-| `GET /api/info` | Serverinfo / health check. |
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /api/ping` | Minimal response for latency measurement. |
+| `GET /api/download?bytes=N` | Streams N bytes of random data (max 500 MiB). |
+| `POST /api/upload` | Consumes the body, reports bytes + server duration. |
+| `GET /api/headers` | Echoes received headers + IP chain (proxy detection). |
+| `GET /api/info` | Server info / health check. |
 
-## Techniek
+## Tech
 
-- Node.js + Express, geen build-stap, vanilla JS frontend (blijft licht zodat de
-  app zelf de meting niet vertroebelt).
-- Random/onversleutelbare payloads zodat compressie de doorvoer niet beïnvloedt.
-- Geen caching op alle endpoints; `Timing-Allow-Origin` voor de Resource Timing
-  API (DNS/TCP/TLS-breakdown).
+- Node.js + Express, no build step, vanilla JS frontend (stays lightweight so the
+  app itself doesn't skew the measurements).
+- Random/incompressible payloads so compression doesn't affect throughput.
+- No caching on any endpoint; `Timing-Allow-Origin` for the Resource Timing API
+  (DNS/TCP/TLS breakdown).

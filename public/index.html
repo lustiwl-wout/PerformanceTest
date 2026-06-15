@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="nl">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -14,12 +14,12 @@
       <span class="logo">⚡</span>
       <div>
         <h1>Proxy Performance Tester</h1>
-        <p class="tagline">Meet de impact van je web-proxy (zoals Zscaler) op latency &amp; doorvoer</p>
+        <p class="tagline">Measure the impact of your web proxy (such as Zscaler) on latency &amp; throughput</p>
       </div>
     </div>
     <div class="conn" id="connBadge">
       <span class="dot" id="connDot"></span>
-      <span id="connText">verbinden…</span>
+      <span id="connText">connecting…</span>
     </div>
   </header>
 
@@ -27,13 +27,13 @@
     <!-- Controls -->
     <section class="panel controls">
       <div class="control-row">
-        <button id="runAll" class="btn btn-primary">▶ Alle tests uitvoeren</button>
-        <button id="saveSnapshot" class="btn" disabled>＋ Snapshot opslaan</button>
+        <button id="runAll" class="btn btn-primary">▶ Run all tests</button>
+        <button id="saveSnapshot" class="btn" disabled>＋ Save snapshot</button>
         <div class="spacer"></div>
         <details class="settings">
-          <summary>⚙ Instellingen</summary>
+          <summary>⚙ Settings</summary>
           <div class="settings-grid">
-            <label>Ping-aantal
+            <label>Ping count
               <input type="number" id="pingCount" value="25" min="3" max="200" />
             </label>
             <label>Download (MB)
@@ -46,7 +46,7 @@
         </details>
       </div>
       <div class="progress-wrap" id="progressWrap" hidden>
-        <div class="progress-label" id="progressLabel">Bezig…</div>
+        <div class="progress-label" id="progressLabel">Working…</div>
         <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
       </div>
     </section>
@@ -61,17 +61,17 @@
         </header>
         <div class="metric">
           <span class="metric-value" id="lat-median">–</span>
-          <span class="metric-unit">ms mediaan</span>
+          <span class="metric-unit">ms median</span>
         </div>
         <div class="submetrics" id="lat-sub">
           <div><label>min</label><span id="lat-min">–</span></div>
-          <div><label>gem.</label><span id="lat-avg">–</span></div>
+          <div><label>avg</label><span id="lat-avg">–</span></div>
           <div><label>p95</label><span id="lat-p95">–</span></div>
           <div><label>max</label><span id="lat-max">–</span></div>
           <div><label>jitter</label><span id="lat-jit">–</span></div>
         </div>
         <canvas id="lat-spark" class="spark" width="600" height="80"></canvas>
-        <p class="hint">Hoge mediaan of jitter wijst op proxy-overhead per request.</p>
+        <p class="hint">A high median or jitter indicates per-request proxy overhead.</p>
       </article>
 
       <!-- Download -->
@@ -87,10 +87,10 @@
         <div class="submetrics">
           <div><label>TTFB</label><span id="dl-ttfb">–</span></div>
           <div><label>data</label><span id="dl-size">–</span></div>
-          <div><label>tijd</label><span id="dl-time">–</span></div>
+          <div><label>time</label><span id="dl-time">–</span></div>
           <div><label>MB/s</label><span id="dl-mbs">–</span></div>
         </div>
-        <p class="hint">Lage doorvoer t.o.v. direct = throttling/SSL-inspectie.</p>
+        <p class="hint">Low throughput vs. direct = throttling / SSL inspection.</p>
       </article>
 
       <!-- Upload -->
@@ -105,18 +105,18 @@
         </div>
         <div class="submetrics">
           <div><label>data</label><span id="ul-size">–</span></div>
-          <div><label>tijd</label><span id="ul-time">–</span></div>
+          <div><label>time</label><span id="ul-time">–</span></div>
           <div><label>MB/s</label><span id="ul-mbs">–</span></div>
           <div><label>server</label><span id="ul-srv">–</span></div>
         </div>
-        <p class="hint">Uploads gaan vaak eerst door de proxy-buffer.</p>
+        <p class="hint">Uploads often pass through the proxy buffer first.</p>
       </article>
 
       <!-- Connection breakdown -->
       <article class="panel card" id="card-conn">
         <header class="card-head">
-          <h2>🔌 Verbinding</h2>
-          <button class="btn btn-sm" data-test="conn">Ververs</button>
+          <h2>🔌 Connection</h2>
+          <button class="btn btn-sm" data-test="conn">Refresh</button>
         </header>
         <div class="bars" id="conn-bars">
           <div class="bar-row"><label>DNS</label><div class="bar"><span id="bar-dns"></span></div><b id="val-dns">–</b></div>
@@ -124,19 +124,19 @@
           <div class="bar-row"><label>TLS</label><div class="bar"><span id="bar-tls"></span></div><b id="val-tls">–</b></div>
           <div class="bar-row"><label>TTFB</label><div class="bar"><span id="bar-ttfb"></span></div><b id="val-ttfb">–</b></div>
         </div>
-        <p class="hint">Hoge <b>TLS</b>-tijd is dé indicator voor SSL-inspectie door de proxy.</p>
+        <p class="hint">A high <b>TLS</b> time is the key indicator of SSL inspection by the proxy.</p>
       </article>
 
       <!-- Proxy detection -->
       <article class="panel card wide" id="card-proxy">
         <header class="card-head">
-          <h2>🛡 Proxy-detectie</h2>
-          <button class="btn btn-sm" data-test="proxy">Ververs</button>
+          <h2>🛡 Proxy detection</h2>
+          <button class="btn btn-sm" data-test="proxy">Refresh</button>
         </header>
-        <div id="proxy-verdict" class="verdict verdict-unknown">Nog niet gecontroleerd</div>
+        <div id="proxy-verdict" class="verdict verdict-unknown">Not checked yet</div>
         <div class="kv" id="proxy-kv"></div>
         <details class="raw-headers">
-          <summary>Alle ontvangen headers</summary>
+          <summary>All received headers</summary>
           <pre id="proxy-headers">–</pre>
         </details>
       </article>
@@ -144,32 +144,32 @@
 
     <!-- Interpretation -->
     <section class="panel" id="summaryPanel" hidden>
-      <h2>📋 Samenvatting &amp; interpretatie</h2>
+      <h2>📋 Summary &amp; interpretation</h2>
       <ul id="summaryList" class="summary-list"></ul>
     </section>
 
     <!-- Snapshots / comparison -->
     <section class="panel">
       <div class="card-head">
-        <h2>📊 Snapshots vergelijken</h2>
-        <button id="clearSnapshots" class="btn btn-sm btn-ghost">Wissen</button>
+        <h2>📊 Compare snapshots</h2>
+        <button id="clearSnapshots" class="btn btn-sm btn-ghost">Clear</button>
       </div>
       <p class="hint">
-        Draai de test <b>mét</b> proxy, sla op als snapshot, draai daarna <b>zónder</b>
-        (of vanaf een niet-gefilterd netwerk) en vergelijk hieronder.
+        Run the test <b>with</b> the proxy, save it as a snapshot, then run it
+        <b>without</b> (or from an unfiltered network) and compare below.
       </p>
       <div class="table-wrap">
         <table id="snapTable">
           <thead>
             <tr>
-              <th>Label</th><th>Tijd</th>
+              <th>Label</th><th>Time</th>
               <th>Latency (ms)</th><th>Jitter</th>
               <th>Download (Mbit/s)</th><th>Upload (Mbit/s)</th>
               <th>TTFB</th><th>TLS</th><th></th>
             </tr>
           </thead>
           <tbody id="snapBody">
-            <tr class="empty"><td colspan="9">Nog geen snapshots opgeslagen.</td></tr>
+            <tr class="empty"><td colspan="9">No snapshots saved yet.</td></tr>
           </tbody>
         </table>
       </div>
@@ -178,7 +178,7 @@
     <!-- Log -->
     <section class="panel">
       <details>
-        <summary class="log-summary">🪵 Logboek</summary>
+        <summary class="log-summary">🪵 Log</summary>
         <pre id="log" class="log"></pre>
       </details>
     </section>
@@ -187,7 +187,7 @@
   <footer>
     <span>Server: <code id="serverInfo">–</code></span>
     <span>·</span>
-    <span>Tip: warm de server eerst op (Render free-tier slaapt na inactiviteit).</span>
+    <span>Tip: warm up the server first (Render free tier sleeps after inactivity).</span>
   </footer>
 
   <script src="app.js"></script>

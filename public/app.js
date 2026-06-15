@@ -121,7 +121,7 @@ async function runLatency() {
   state.latency = stats;
   renderLatency(stats);
   if (connBreakdown) maybeUpdateConnFromTiming(connBreakdown);
-  log(`Latency: mediaan ${fmt(stats.median)} ms, jitter ${fmt(stats.jitter)} ms`);
+  log(`Latency: median ${fmt(stats.median)} ms, jitter ${fmt(stats.jitter)} ms`);
   return stats;
 }
 
@@ -173,7 +173,7 @@ function runUpload() {
   const mb = parseInt($('uploadMb').value, 10) || 10;
   const bytes = mb * MB;
   log(`Upload: ${mb} MB…`);
-  setProgress('Upload voorbereiden…', 0);
+  setProgress('Preparing upload…', 0);
   const blob = makeRandomBlob(bytes);
 
   return new Promise((resolve, reject) => {
@@ -198,13 +198,13 @@ function runUpload() {
       log(`Upload: ${fmt(mbps)} Mbit/s`);
       resolve(result);
     };
-    xhr.onerror = () => { log('Upload: fout'); reject(new Error('upload failed')); };
+    xhr.onerror = () => { log('Upload: error'); reject(new Error('upload failed')); };
     xhr.send(blob);
   });
 }
 
 async function runConnInfo() {
-  log('Verbinding/proxy controleren…');
+  log('Checking connection/proxy…');
   const res = await fetch(cacheBust('/api/headers'), { cache: 'no-store' });
   const data = await res.json();
   state.proxy = data;
@@ -282,21 +282,21 @@ function renderProxy(data) {
 
   if (proxyHeaders.length > 0) {
     verdict.className = 'verdict verdict-proxy';
-    verdict.textContent = `⚠ Proxy/forwarding gedetecteerd — ${proxyHeaders.length} verdachte header(s). Verkeer loopt waarschijnlijk via een tussenliggende proxy.`;
+    verdict.textContent = `⚠ Proxy/forwarding detected — ${proxyHeaders.length} suspicious header(s). Traffic is likely passing through an intermediate proxy.`;
   } else {
     verdict.className = 'verdict verdict-direct';
-    verdict.textContent = '✓ Geen typische proxy-headers gezien op de server. (Let op: Render zelf zit ook achter een load balancer.)';
+    verdict.textContent = '✓ No typical proxy headers seen at the server. (Note: Render itself also sits behind a load balancer.)';
   }
 
   const kv = $('proxy-kv');
   kv.innerHTML = '';
   const rows = [
-    ['Client-IP (server ziet)', data.ip],
-    ['IP-keten', (data.ips && data.ips.length) ? data.ips.join(' → ') : '(leeg)'],
-    ['HTTP-versie', data.httpVersion],
+    ['Client IP (as seen by server)', data.ip],
+    ['IP chain', (data.ips && data.ips.length) ? data.ips.join(' → ') : '(empty)'],
+    ['HTTP version', data.httpVersion],
     ['Protocol', data.protocol],
     ['User-Agent', headers['user-agent']],
-    ['Server-regio', data.region || '(onbekend)'],
+    ['Server region', data.region || '(unknown)'],
   ];
   for (const [k, v] of rows) addKv(kv, k, v ?? '–', false);
   for (const h of proxyHeaders) addKv(kv, h, headers[h], true);
@@ -353,16 +353,16 @@ function renderSummary() {
 
   if (state.conn && state.conn.tls != null) {
     const tls = state.conn.tls;
-    if (tls > 150) add('bad', `TLS-handshake duurt ${fmt(tls)} ms — sterk verhoogd, typisch voor SSL-inspectie door een proxy.`);
-    else if (tls > 60) add('warn', `TLS-handshake ${fmt(tls)} ms — licht verhoogd; kan op interceptie wijzen.`);
-    else if (tls > 0) add('good', `TLS-handshake ${fmt(tls)} ms — normaal, geen duidelijke inspectie-overhead.`);
+    if (tls > 150) add('bad', `TLS handshake takes ${fmt(tls)} ms — strongly elevated, typical of SSL inspection by a proxy.`);
+    else if (tls > 60) add('warn', `TLS handshake ${fmt(tls)} ms — slightly elevated; may indicate interception.`);
+    else if (tls > 0) add('good', `TLS handshake ${fmt(tls)} ms — normal, no clear inspection overhead.`);
   }
 
   if (state.latency) {
     const { median, jitter } = state.latency;
-    if (median > 120) add('warn', `Mediane latency ${fmt(median)} ms is hoog — controleer of de proxy de route omleidt.`);
-    else add('good', `Mediane latency ${fmt(median)} ms.`);
-    if (jitter > median * 0.5 && jitter > 15) add('warn', `Hoge jitter (${fmt(jitter)} ms) — wisselende proxy-/wachtrijvertraging.`);
+    if (median > 120) add('warn', `Median latency ${fmt(median)} ms is high — check whether the proxy is rerouting traffic.`);
+    else add('good', `Median latency ${fmt(median)} ms.`);
+    if (jitter > median * 0.5 && jitter > 15) add('warn', `High jitter (${fmt(jitter)} ms) — variable proxy/queueing delay.`);
   }
 
   if (state.download) {
@@ -374,10 +374,10 @@ function renderSummary() {
 
   if (state.proxy) {
     const hdrs = Object.keys(state.proxy.headers || {}).filter((k) => PROXY_PATTERNS.test(k));
-    if (hdrs.length) add('warn', `Proxy-headers aanwezig: ${hdrs.join(', ')}.`);
+    if (hdrs.length) add('warn', `Proxy headers present: ${hdrs.join(', ')}.`);
   }
 
-  add('good', 'Tip: sla dit op als snapshot en vergelijk met een run zónder proxy om de echte impact te zien.');
+  add('good', 'Tip: save this as a snapshot and compare with a run without the proxy to see the real impact.');
 
   for (const it of items) {
     const li = document.createElement('li');
@@ -419,7 +419,7 @@ function renderSnapshots() {
   const body = $('snapBody');
   body.innerHTML = '';
   if (!list.length) {
-    body.innerHTML = '<tr class="empty"><td colspan="9">Nog geen snapshots opgeslagen.</td></tr>';
+    body.innerHTML = '<tr class="empty"><td colspan="9">No snapshots saved yet.</td></tr>';
     return;
   }
   list.forEach((s, i) => {
@@ -435,11 +435,32 @@ function renderSnapshots() {
       s.tls != null ? fmt(s.tls) : '–',
     ];
     cells.forEach((c) => { const td = document.createElement('td'); td.textContent = c; tr.appendChild(td); });
-    const tdDel = document.createElement('td');
-    const btn = document.createElement('button');
-    btn.className = 'snap-del'; btn.textContent = '✕'; btn.title = 'Verwijderen';
-    btn.onclick = () => { const l = loadSnapshots(); l.splice(i, 1); saveSnapshots(l); renderSnapshots(); };
-    tdDel.appendChild(btn); tr.appendChild(tdDel);
+
+    const tdActions = document.createElement('td');
+    tdActions.className = 'snap-actions';
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'snap-edit'; editBtn.textContent = '✎'; editBtn.title = 'Rename';
+    editBtn.onclick = () => {
+      const l = loadSnapshots();
+      if (!l[i]) return;
+      const name = prompt('New label for this snapshot:', l[i].label);
+      if (name == null) return;            // cancelled
+      const trimmed = name.trim();
+      if (!trimmed) return;                // empty -> keep old label
+      l[i].label = trimmed;
+      saveSnapshots(l);
+      renderSnapshots();
+      log('Snapshot renamed to: ' + trimmed);
+    };
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'snap-del'; delBtn.textContent = '✕'; delBtn.title = 'Delete';
+    delBtn.onclick = () => { const l = loadSnapshots(); l.splice(i, 1); saveSnapshots(l); renderSnapshots(); };
+
+    tdActions.appendChild(editBtn);
+    tdActions.appendChild(delBtn);
+    tr.appendChild(tdActions);
     body.appendChild(tr);
   });
 }
@@ -457,9 +478,9 @@ async function runAll() {
     await runUpload();
     renderSummary();
     $('saveSnapshot').disabled = false;
-    log('Alle tests klaar.');
+    log('All tests done.');
   } catch (err) {
-    log('Fout: ' + (err && err.message ? err.message : err));
+    log('Error: ' + (err && err.message ? err.message : err));
   } finally {
     setProgress(null);
     setButtonsDisabled(false);
@@ -475,7 +496,7 @@ async function runSingle(test) {
     else if (test === 'conn' || test === 'proxy') await runConnInfo();
     $('saveSnapshot').disabled = false;
   } catch (err) {
-    log('Fout: ' + (err && err.message ? err.message : err));
+    log('Error: ' + (err && err.message ? err.message : err));
   } finally {
     setProgress(null);
     setButtonsDisabled(false);
@@ -488,13 +509,13 @@ async function init() {
     const res = await fetch(cacheBust('/api/info'), { cache: 'no-store' });
     const info = await res.json();
     $('connDot').className = 'dot ok';
-    $('connText').textContent = 'verbonden';
-    $('serverInfo').textContent = `${info.nodeVersion} · regio ${info.region || '?'} · uptime ${info.uptimeSec}s`;
-    log('Verbonden met server.');
+    $('connText').textContent = 'connected';
+    $('serverInfo').textContent = `${info.nodeVersion} · region ${info.region || '?'} · uptime ${info.uptimeSec}s`;
+    log('Connected to server.');
   } catch (_) {
     $('connDot').className = 'dot err';
-    $('connText').textContent = 'geen verbinding';
-    log('Kon server niet bereiken.');
+    $('connText').textContent = 'no connection';
+    log('Could not reach server.');
   }
 
   // Wire up controls.
@@ -503,16 +524,16 @@ async function init() {
     b.onclick = () => runSingle(b.dataset.test);
   });
   $('saveSnapshot').onclick = () => {
-    const label = prompt('Label voor deze snapshot (bv. "Met Zscaler" of "Direct"):', 'Met proxy');
+    const label = prompt('Label for this snapshot (e.g. "With Zscaler" or "Direct"):', 'With proxy');
     if (!label) return;
     const list = loadSnapshots();
     list.push(currentSnapshot(label));
     saveSnapshots(list);
     renderSnapshots();
-    log('Snapshot opgeslagen: ' + label);
+    log('Snapshot saved: ' + label);
   };
   $('clearSnapshots').onclick = () => {
-    if (confirm('Alle snapshots verwijderen?')) { saveSnapshots([]); renderSnapshots(); }
+    if (confirm('Delete all snapshots?')) { saveSnapshots([]); renderSnapshots(); }
   };
 
   // Initial proxy/connection read so the dashboard isn't empty.
