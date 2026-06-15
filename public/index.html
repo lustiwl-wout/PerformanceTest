@@ -48,8 +48,14 @@
             <label>Upload (MB)
               <input type="number" id="uploadMb" value="10" min="1" max="500" />
             </label>
-            <label title="A group is flagged 'not good' when the proxy worsens any key metric by more than this.">Verdict tolerance (%)
-              <input type="number" id="verdictTol" value="20" min="0" max="500" />
+            <label title="Flag 'not good' when proxy latency exceeds the baseline by more than this.">Latency tol (%)
+              <input type="number" id="latTol" value="30" min="0" max="500" />
+            </label>
+            <label title="Flag 'not good' when proxy TTFB exceeds the baseline by more than this.">TTFB tol (%)
+              <input type="number" id="ttfbTol" value="30" min="0" max="500" />
+            </label>
+            <label title="Flag 'not good' when proxy throughput (download/upload) drops below the baseline by more than this.">Throughput tol (%)
+              <input type="number" id="thrTol" value="30" min="0" max="500" />
             </label>
           </div>
         </details>
@@ -99,8 +105,9 @@
         </table>
       </div>
       <p class="src-note">
-        Verdict is <b>not good</b> when the proxy worsens latency, TTFB, TLS or throughput by more than the
-        tolerance (Settings, default 20%). Absolute values include server distance, so the Δ is what matters.
+        Verdict is <b>not good</b> when the proxy worsens <b>latency</b>, <b>TTFB</b> or <b>throughput</b> by more
+        than that metric's own tolerance (Settings, default 30% each). TLS is shown but not judged — SSL inspection
+        inherently doubles the handshake. Absolute values include server distance, so the Δ is what matters.
       </p>
     </section>
 

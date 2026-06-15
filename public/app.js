@@ -517,34 +517,41 @@ function appendMetricCell(tr, value, baseValue, unit) {
 
 // ---- Verdict: does the proxy meaningfully degrade this group? ----
 
-function currentTolerance() {
-  const v = parseFloat($('verdictTol') && $('verdictTol').value);
-  return Number.isFinite(v) && v >= 0 ? v / 100 : 0.20;
+// Per-metric tolerances (fractions). Each metric is judged against its own limit.
+function currentTolerances() {
+  const pct = (id, def) => {
+    const v = parseFloat($(id) && $(id).value);
+    return Number.isFinite(v) && v >= 0 ? v / 100 : def;
+  };
+  return { lat: pct('latTol', 0.30), ttfb: pct('ttfbTol', 0.30), thr: pct('thrTol', 0.30) };
 }
 
-// Worst relative degradation of the proxy median vs the direct baseline.
-function worstDegradation(proxy, base) {
-  const items = [];
-  const up = (p, b) => (b ? (p - b) / b : null);    // higher = worse (latency/ttfb/tls)
-  const down = (p, b) => (b ? (b - p) / b : null);  // lower = worse (throughput)
-  const push = (k, v) => { if (v != null && isFinite(v)) items.push({ k, v }); };
-  push('latency', up(proxy.latency.median, base.latency.median));
-  push('TTFB', up(proxy.ttfb, base.ttfb));
-  push('TLS', up(proxy.tls, base.tls));
-  push('download', down(proxy.download, base.download));
-  push('upload', down(proxy.upload, base.upload));
-  if (!items.length) return null;
-  return items.reduce((a, b) => (b.v > a.v ? b : a));
-}
-
+// Verdict: 'not good' if the proxy exceeds ANY metric's own tolerance.
+// TLS is intentionally excluded — SSL inspection inherently doubles the handshake,
+// so it would almost always trip and says little about the user experience.
 function groupVerdict(base, proxy, tol) {
   if (!base && !proxy) return { level: 'na', text: 'no scans' };
   if (!base) return { level: 'na', text: 'add a direct (no-proxy) scan' };
   if (!proxy) return { level: 'na', text: 'add a with-proxy scan' };
-  const w = worstDegradation(proxy, base);
-  if (!w) return { level: 'na', text: 'not enough data' };
-  const pct = Math.round(w.v * 100);
-  if (w.v > tol) return { level: 'bad', text: `not good — ${w.k} +${pct}%` };
+
+  const up = (p, b) => (b ? (p - b) / b : null);    // higher = worse (latency/TTFB)
+  const down = (p, b) => (b ? (b - p) / b : null);  // lower = worse (throughput)
+  const checks = [];
+  const consider = (k, deg, lim, drop) => {
+    if (deg == null || !isFinite(deg)) return;
+    checks.push({ k, over: deg > lim, margin: deg - lim, disp: `${drop ? '−' : '+'}${Math.round(deg * 100)}%` });
+  };
+  consider('latency', up(proxy.latency.median, base.latency.median), tol.lat, false);
+  consider('TTFB', up(proxy.ttfb, base.ttfb), tol.ttfb, false);
+  consider('download', down(proxy.download, base.download), tol.thr, true);
+  consider('upload', down(proxy.upload, base.upload), tol.thr, true);
+
+  if (!checks.length) return { level: 'na', text: 'not enough data' };
+  const over = checks.filter((c) => c.over);
+  if (over.length) {
+    const worst = over.reduce((a, b) => (b.margin > a.margin ? b : a));
+    return { level: 'bad', text: `not good — ${worst.k} ${worst.disp}` };
+  }
   return { level: 'good', text: 'good' };
 }
 
@@ -666,7 +673,7 @@ function renderResults(list) {
     return;
   }
 
-  const tol = currentTolerance();
+  const tol = currentTolerances();
   const showScans = $('showScans') && $('showScans').checked;
 
   for (const [g, scans] of groupScans(list)) {
@@ -769,7 +776,7 @@ async function init() {
   };
 
   $('showScans').onchange = () => renderResults(snapshotsCache);
-  $('verdictTol').onchange = () => renderResults(snapshotsCache);
+  ['latTol', 'ttfbTol', 'thrTol'].forEach((id) => { $(id).onchange = () => renderResults(snapshotsCache); });
 
   $('clearSnapshots').onclick = async () => {
     if (!dbAvailable()) return;
