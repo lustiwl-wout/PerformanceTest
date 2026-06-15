@@ -185,8 +185,10 @@ tr.baseline-row { background: rgba(79,157,255,.08); }
 }
 
 .src-note { font-size: 12px; color: var(--muted); margin: 12px 0 0; line-height: 1.6; }
-.hint a, .src-note a { color: var(--accent); text-decoration: none; }
-.hint a:hover, .src-note a:hover { text-decoration: underline; }
+.snap-caption { caption-side: top; text-align: left; font-size: 12px; color: var(--muted); line-height: 1.6; padding: 0 0 12px; }
+.th-note { display: block; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--muted); font-size: 10px; margin-top: 2px; }
+.hint a, .src-note a, .snap-caption a { color: var(--accent); text-decoration: none; }
+.hint a:hover, .src-note a:hover, .snap-caption a:hover { text-decoration: underline; }
 
 /* ---- Log ---- */
 .log-summary { cursor: pointer; color: var(--muted); }
