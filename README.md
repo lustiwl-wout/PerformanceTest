@@ -60,8 +60,24 @@ test discards its first measurement anyway).
 5. Compare the rows in the **snapshots** table. Large differences in TLS time,
    latency jitter or throughput point to proxy impact.
 
-> You can rename a saved snapshot's label any time with the ✎ button, or remove
-> it with ✕.
+> You can rename a saved snapshot's label any time with the ✎ button, mark one as
+> the ◎ **baseline** (your direct reference), or remove it with ✕. Once a baseline
+> is set, the coloured **Δ** on Latency & TTFB shows the proxy's *added* latency.
+
+## Thresholds & sources
+
+The colour grading in the UI is anchored to published figures, not guesswork:
+
+| Metric | Threshold | Source |
+|--------|-----------|--------|
+| **Absolute TTFB** | ≤ 800 ms good · 800–1800 ms needs improvement · > 1800 ms poor | [web.dev — TTFB](https://web.dev/articles/ttfb) (TTFB is a diagnostic metric, not a Core Web Vital; the band targets full-page navigation) |
+| **Proxy overhead (Δ vs. baseline)** | ≤ 100 ms green / > 100 ms red | [Zscaler ZIA Latency Agreement](https://www.zscaler.com/legal/sla-support) — Zscaler commits to *"100 milliseconds or less for the 95th percentile"* of proxy **processing** (measured proxy-ingress → proxy-egress; it does **not** cover the network detour to the Zscaler node) |
+
+Background on the TLS handshake cost (where SSL inspection shows up): a TLS 1.3
+handshake is 1 round trip vs. 2 for TLS 1.2 — see
+[ThousandEyes](https://www.thousandeyes.com/blog/optimizing-web-performance-tls-1-3)
+and [Cloudflare 0-RTT](https://blog.cloudflare.com/introducing-0-rtt/). The
+per-metric TLS bands in the summary are heuristic, not a published standard.
 
 ## Endpoints (API)
 

@@ -90,7 +90,7 @@
           <div><label>time</label><span id="dl-time">–</span></div>
           <div><label>MB/s</label><span id="dl-mbs">–</span></div>
         </div>
-        <p class="hint">Low throughput vs. direct = throttling / SSL inspection.</p>
+        <p class="hint">Low throughput vs. direct = throttling / SSL inspection. TTFB coloured per <a href="https://web.dev/articles/ttfb" target="_blank" rel="noopener">web.dev</a> (≤800 ms good).</p>
       </article>
 
       <!-- Upload -->
@@ -124,7 +124,7 @@
           <div class="bar-row"><label>TLS</label><div class="bar"><span id="bar-tls"></span></div><b id="val-tls">–</b></div>
           <div class="bar-row"><label>TTFB</label><div class="bar"><span id="bar-ttfb"></span></div><b id="val-ttfb">–</b></div>
         </div>
-        <p class="hint">A high <b>TLS</b> time is the key indicator of SSL inspection by the proxy.</p>
+        <p class="hint">A high <b>TLS</b> time is the key indicator of SSL inspection by the proxy. TTFB coloured per <a href="https://web.dev/articles/ttfb" target="_blank" rel="noopener">web.dev</a> bands.</p>
       </article>
 
       <!-- Proxy detection -->
@@ -173,6 +173,17 @@
           </tbody>
         </table>
       </div>
+      <p class="src-note">
+        Mark one run as <b>◎ baseline</b> (your direct, un-proxied reference). The coloured
+        <b>Δ</b> on Latency &amp; TTFB then shows the proxy's <i>added</i> latency, graded
+        <span class="grade-good">green ≤100 ms</span> / <span class="grade-poor">red &gt;100 ms</span>
+        against Zscaler's own SLA of ≤100 ms at p95
+        (<a href="https://www.zscaler.com/legal/sla-support" target="_blank" rel="noopener">ZIA Latency Agreement</a>).
+        Absolute TTFB is graded against
+        <a href="https://web.dev/articles/ttfb" target="_blank" rel="noopener">web.dev thresholds</a>
+        (≤800 ms good, &gt;1800 ms poor). Note: web.dev targets full-page navigation, so on
+        this lightweight endpoint the <b>Δ vs. baseline</b> is the more telling signal.
+      </p>
     </section>
 
     <!-- Log -->

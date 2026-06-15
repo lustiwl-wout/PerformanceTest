@@ -164,10 +164,29 @@ td { font-family: var(--mono); }
 td:first-child, th:first-child { font-family: inherit; }
 tr.empty td { text-align: center; color: var(--muted); font-family: inherit; }
 .snap-actions { white-space: nowrap; text-align: right; }
-.snap-edit, .snap-del { background: transparent; border: none; cursor: pointer; font-size: 16px; padding: 2px 6px; border-radius: 6px; }
+.snap-edit, .snap-del, .snap-base { background: transparent; border: none; cursor: pointer; font-size: 16px; padding: 2px 6px; border-radius: 6px; }
 .snap-edit { color: var(--accent); }
 .snap-del { color: var(--bad); }
-.snap-edit:hover, .snap-del:hover { background: var(--panel-2); }
+.snap-base { color: var(--muted); }
+.snap-base.active { color: var(--accent); }
+.snap-edit:hover, .snap-del:hover, .snap-base:hover { background: var(--panel-2); }
+
+/* ---- Sourced threshold grading ---- */
+.grade-good { color: var(--good); }
+.grade-ni   { color: var(--warn); }
+.grade-poor { color: var(--bad); }
+.delta { font-size: 11px; margin-left: 4px; opacity: .9; }
+
+tr.baseline-row { background: rgba(79,157,255,.08); }
+.baseline-tag {
+  display: inline-block; font-size: 10px; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--accent); border: 1px solid var(--accent); border-radius: 4px;
+  padding: 0 5px; margin-left: 8px; vertical-align: middle;
+}
+
+.src-note { font-size: 12px; color: var(--muted); margin: 12px 0 0; line-height: 1.6; }
+.hint a, .src-note a { color: var(--accent); text-decoration: none; }
+.hint a:hover, .src-note a:hover { text-decoration: underline; }
 
 /* ---- Log ---- */
 .log-summary { cursor: pointer; color: var(--muted); }

@@ -49,6 +49,26 @@ function setButtonsDisabled(disabled) {
   document.querySelectorAll('button[data-test], #runAll').forEach((b) => { b.disabled = disabled; });
 }
 
+/* ---------- sourced thresholds ----------
+ * TTFB bands       -> web.dev:  https://web.dev/articles/ttfb
+ *                     good <=800ms, needs-improvement <=1800ms, else poor.
+ *                     (Targets full-page navigation TTFB; used here as an
+ *                      absolute backstop.)
+ * Proxy overhead   -> Zscaler ZIA Latency SLA: <=100ms at the 95th percentile
+ *                     for proxy processing. https://www.zscaler.com/legal/sla-support
+ *                     Applied to the *added* latency (delta vs a direct baseline).
+ */
+function gradeTtfb(ms) {
+  if (ms == null || !isFinite(ms)) return '';
+  if (ms <= 800) return 'grade-good';
+  if (ms <= 1800) return 'grade-ni';
+  return 'grade-poor';
+}
+function gradeOverhead(deltaMs) {
+  if (deltaMs == null || !isFinite(deltaMs)) return '';
+  return deltaMs <= 100 ? 'grade-good' : 'grade-poor';
+}
+
 /* ---------- statistics ---------- */
 
 function summarize(samples) {
@@ -239,7 +259,9 @@ function renderLatency(s) {
 
 function renderDownload(r) {
   $('dl-mbps').textContent = fmt(r.mbps);
-  $('dl-ttfb').textContent = fmt(r.ttfbMs) + ' ms';
+  const dlTtfb = $('dl-ttfb');
+  dlTtfb.textContent = fmt(r.ttfbMs) + ' ms';
+  dlTtfb.className = gradeTtfb(r.ttfbMs); // web.dev bands
   $('dl-size').textContent = fmtBytes(r.bytes);
   $('dl-time').textContent = fmt(r.transferMs) + ' ms';
   $('dl-mbs').textContent = fmt(r.MBps) + ' MB/s';
@@ -271,6 +293,7 @@ function renderConn(t) {
   set('bar-tcp', 'val-tcp', t.tcp);
   set('bar-tls', 'val-tls', t.tls);
   set('bar-ttfb', 'val-ttfb', t.ttfb);
+  $('val-ttfb').className = gradeTtfb(t.ttfb); // web.dev bands
 }
 
 const PROXY_PATTERNS = /^(via|forwarded|x-forwarded-|x-real-ip|x-client-ip|proxy-|x-zscaler|zscaler|x-bluecoat|x-cache|x-cache-lookup|cf-connecting-ip|client-ip|x-forwarded-server|x-sinkhole)/i;
@@ -360,16 +383,16 @@ function renderSummary() {
 
   if (state.latency) {
     const { median, jitter } = state.latency;
-    if (median > 120) add('warn', `Median latency ${fmt(median)} ms is high — check whether the proxy is rerouting traffic.`);
-    else add('good', `Median latency ${fmt(median)} ms.`);
+    add('good', `Median latency ${fmt(median)} ms.`);
     if (jitter > median * 0.5 && jitter > 15) add('warn', `High jitter (${fmt(jitter)} ms) — variable proxy/queueing delay.`);
   }
 
   if (state.download) {
-    add(state.download.mbps < 20 ? 'warn' : 'good', `Download ${fmt(state.download.mbps)} Mbit/s, TTFB ${fmt(state.download.ttfbMs)} ms.`);
+    const cls = state.download.ttfbMs > 800 ? 'warn' : 'good';
+    add(cls, `Download ${fmt(state.download.mbps)} Mbit/s, TTFB ${fmt(state.download.ttfbMs)} ms (web.dev: ≤800 ms good).`);
   }
   if (state.upload) {
-    add(state.upload.mbps < 10 ? 'warn' : 'good', `Upload ${fmt(state.upload.mbps)} Mbit/s.`);
+    add('good', `Upload ${fmt(state.upload.mbps)} Mbit/s.`);
   }
 
   if (state.proxy) {
@@ -377,7 +400,7 @@ function renderSummary() {
     if (hdrs.length) add('warn', `Proxy headers present: ${hdrs.join(', ')}.`);
   }
 
-  add('good', 'Tip: save this as a snapshot and compare with a run without the proxy to see the real impact.');
+  add('good', 'Tip: save this run, mark a direct (un-proxied) run as ◎ baseline, then the Δ shows the proxy overhead vs Zscaler\'s ≤100 ms p95 SLA.');
 
   for (const it of items) {
     const li = document.createElement('li');
@@ -393,6 +416,7 @@ function renderSummary() {
  * ========================================================== */
 
 const SNAP_KEY = 'pptester.snapshots.v1';
+const BASE_KEY = 'pptester.baselineTs.v1';
 
 function loadSnapshots() {
   try { return JSON.parse(localStorage.getItem(SNAP_KEY)) || []; }
@@ -400,6 +424,11 @@ function loadSnapshots() {
 }
 function saveSnapshots(list) {
   localStorage.setItem(SNAP_KEY, JSON.stringify(list));
+}
+function getBaselineTs() { return localStorage.getItem(BASE_KEY); }
+function setBaselineTs(ts) {
+  if (ts == null) localStorage.removeItem(BASE_KEY);
+  else localStorage.setItem(BASE_KEY, String(ts));
 }
 
 function currentSnapshot(label) {
@@ -414,6 +443,32 @@ function currentSnapshot(label) {
   };
 }
 
+function appendCell(tr, text) {
+  const td = document.createElement('td');
+  td.textContent = text;
+  tr.appendChild(td);
+}
+
+// Cell that shows a value plus, when a baseline is set, the colored delta
+// (proxy overhead) graded against Zscaler's 100 ms p95 SLA.
+function appendMetricCell(tr, value, baseValue, valueGradeCls) {
+  const td = document.createElement('td');
+  const span = document.createElement('span');
+  span.textContent = value != null ? fmt(value) : '–';
+  if (valueGradeCls) span.className = valueGradeCls;
+  td.appendChild(span);
+  if (value != null && baseValue != null) {
+    const delta = value - baseValue;
+    const d = document.createElement('span');
+    d.className = 'delta ' + gradeOverhead(delta);
+    const sign = delta >= 0 ? '+' : '−';
+    d.textContent = ` Δ${sign}${fmt(Math.abs(delta))}`;
+    d.title = 'Added vs baseline — graded against Zscaler ≤100 ms p95 SLA';
+    td.appendChild(d);
+  }
+  tr.appendChild(td);
+}
+
 function renderSnapshots() {
   const list = loadSnapshots();
   const body = $('snapBody');
@@ -422,22 +477,44 @@ function renderSnapshots() {
     body.innerHTML = '<tr class="empty"><td colspan="9">No snapshots saved yet.</td></tr>';
     return;
   }
-  list.forEach((s, i) => {
-    const tr = document.createElement('tr');
-    const cells = [
-      s.label,
-      new Date(s.ts).toLocaleString(),
-      s.latency ? fmt(s.latency.median) : '–',
-      s.latency ? fmt(s.latency.jitter) : '–',
-      fmt(s.download),
-      fmt(s.upload),
-      s.ttfb != null ? fmt(s.ttfb) : '–',
-      s.tls != null ? fmt(s.tls) : '–',
-    ];
-    cells.forEach((c) => { const td = document.createElement('td'); td.textContent = c; tr.appendChild(td); });
 
+  const baseTs = getBaselineTs();
+  const baseline = list.find((s) => String(s.ts) === String(baseTs)) || null;
+
+  list.forEach((s, i) => {
+    const isBase = !!(baseline && String(s.ts) === String(baseline.ts));
+    const cmp = baseline && !isBase ? baseline : null; // compare this row against baseline
+    const tr = document.createElement('tr');
+    if (isBase) tr.className = 'baseline-row';
+
+    // Label (+ baseline tag)
+    const tdLabel = document.createElement('td');
+    tdLabel.textContent = s.label;
+    if (isBase) {
+      const tag = document.createElement('span');
+      tag.className = 'baseline-tag';
+      tag.textContent = 'baseline';
+      tdLabel.appendChild(tag);
+    }
+    tr.appendChild(tdLabel);
+
+    appendCell(tr, new Date(s.ts).toLocaleString());
+    appendMetricCell(tr, s.latency ? s.latency.median : null, cmp && cmp.latency ? cmp.latency.median : null);
+    appendCell(tr, s.latency ? fmt(s.latency.jitter) : '–');
+    appendCell(tr, fmt(s.download));
+    appendCell(tr, fmt(s.upload));
+    appendMetricCell(tr, s.ttfb, cmp ? cmp.ttfb : null, gradeTtfb(s.ttfb));
+    appendCell(tr, s.tls != null ? fmt(s.tls) : '–');
+
+    // Actions: baseline / rename / delete
     const tdActions = document.createElement('td');
     tdActions.className = 'snap-actions';
+
+    const baseBtn = document.createElement('button');
+    baseBtn.className = 'snap-base' + (isBase ? ' active' : '');
+    baseBtn.textContent = '◎';
+    baseBtn.title = isBase ? 'Unset baseline' : 'Set as direct baseline';
+    baseBtn.onclick = () => { setBaselineTs(isBase ? null : s.ts); renderSnapshots(); };
 
     const editBtn = document.createElement('button');
     editBtn.className = 'snap-edit'; editBtn.textContent = '✎'; editBtn.title = 'Rename';
@@ -456,8 +533,15 @@ function renderSnapshots() {
 
     const delBtn = document.createElement('button');
     delBtn.className = 'snap-del'; delBtn.textContent = '✕'; delBtn.title = 'Delete';
-    delBtn.onclick = () => { const l = loadSnapshots(); l.splice(i, 1); saveSnapshots(l); renderSnapshots(); };
+    delBtn.onclick = () => {
+      const l = loadSnapshots();
+      const removed = l.splice(i, 1)[0];
+      saveSnapshots(l);
+      if (removed && String(removed.ts) === String(getBaselineTs())) setBaselineTs(null);
+      renderSnapshots();
+    };
 
+    tdActions.appendChild(baseBtn);
     tdActions.appendChild(editBtn);
     tdActions.appendChild(delBtn);
     tr.appendChild(tdActions);
@@ -533,7 +617,7 @@ async function init() {
     log('Snapshot saved: ' + label);
   };
   $('clearSnapshots').onclick = () => {
-    if (confirm('Delete all snapshots?')) { saveSnapshots([]); renderSnapshots(); }
+    if (confirm('Delete all snapshots?')) { saveSnapshots([]); setBaselineTs(null); renderSnapshots(); }
   };
 
   // Initial proxy/connection read so the dashboard isn't empty.
