@@ -2,8 +2,12 @@
 
 /* ============================================================
  * Proxy Performance Tester - client logic
- * Measures latency, throughput and connection setup so you can
- * compare a run made *through* a proxy (Zscaler) with a direct run.
+ * Absolute numbers are dominated by server distance, so the tool is built
+ * around the DIFFERENCE between a run made *through* a proxy (Zscaler) and a
+ * direct run. That delta is what isolates the proxy's cost.
+ *
+ * Snapshots persist to PostgreSQL when the server has DATABASE_URL configured,
+ * otherwise to this browser's localStorage.
  * ========================================================== */
 
 const $ = (id) => document.getElementById(id);
@@ -49,21 +53,13 @@ function setButtonsDisabled(disabled) {
   document.querySelectorAll('button[data-test], #runAll').forEach((b) => { b.disabled = disabled; });
 }
 
-/* ---------- sourced thresholds ----------
- * TTFB bands       -> web.dev:  https://web.dev/articles/ttfb
- *                     good <=800ms, needs-improvement <=1800ms, else poor.
- *                     (Targets full-page navigation TTFB; used here as an
- *                      absolute backstop.)
- * Proxy overhead   -> Zscaler ZIA Latency SLA: <=100ms at the 95th percentile
- *                     for proxy processing. https://www.zscaler.com/legal/sla-support
- *                     Applied to the *added* latency (delta vs a direct baseline).
+/* ---------- sourced threshold for proxy overhead ----------
+ * The proxy's *added* latency (delta vs a direct baseline) is graded against
+ * Zscaler's own ZIA Latency SLA: <=100ms at the 95th percentile for proxy
+ * processing.  https://www.zscaler.com/legal/sla-support
+ * (Absolute values are deliberately NOT graded — they reflect server distance,
+ * not the proxy.)
  */
-function gradeTtfb(ms) {
-  if (ms == null || !isFinite(ms)) return '';
-  if (ms <= 800) return 'grade-good';
-  if (ms <= 1800) return 'grade-ni';
-  return 'grade-poor';
-}
 function gradeOverhead(deltaMs) {
   if (deltaMs == null || !isFinite(deltaMs)) return '';
   return deltaMs <= 100 ? 'grade-good' : 'grade-poor';
@@ -131,7 +127,6 @@ async function runLatency() {
   for (let i = 0; i < count; i++) {
     const { rtt, url } = await pingOnce();
     samples.push(rtt);
-    // Capture connection-setup timing from any request that opened a socket.
     const t = timingFor(url);
     if (t && t.hadConnection && !connBreakdown) connBreakdown = t;
     setProgress(`Latency ${i + 1}/${count}`, (i + 1) / count);
@@ -229,8 +224,6 @@ async function runConnInfo() {
   const data = await res.json();
   state.proxy = data;
   renderProxy(data);
-  // Page-load navigation timing gives a genuine cold-connection breakdown
-  // (incl. the real TLS handshake through the proxy).
   const nav = performance.getEntriesByType('navigation')[0];
   if (nav) {
     maybeUpdateConnFromTiming({
@@ -244,7 +237,7 @@ async function runConnInfo() {
 }
 
 /* ============================================================
- * Rendering
+ * Rendering (absolute numbers — shown plainly, never colour-judged)
  * ========================================================== */
 
 function renderLatency(s) {
@@ -259,9 +252,7 @@ function renderLatency(s) {
 
 function renderDownload(r) {
   $('dl-mbps').textContent = fmt(r.mbps);
-  const dlTtfb = $('dl-ttfb');
-  dlTtfb.textContent = fmt(r.ttfbMs) + ' ms';
-  dlTtfb.className = gradeTtfb(r.ttfbMs); // web.dev bands
+  $('dl-ttfb').textContent = fmt(r.ttfbMs) + ' ms';
   $('dl-size').textContent = fmtBytes(r.bytes);
   $('dl-time').textContent = fmt(r.transferMs) + ' ms';
   $('dl-mbs').textContent = fmt(r.MBps) + ' MB/s';
@@ -275,7 +266,6 @@ function renderUpload(r) {
   $('ul-srv').textContent = r.server && r.server.serverDurationMs != null ? fmt(r.server.serverDurationMs) + ' ms' : '–';
 }
 
-// Keep the largest seen TLS/connection breakdown (the real cold-connection one).
 function maybeUpdateConnFromTiming(t, force = false) {
   if (!state.conn || force || (t.tls || 0) > (state.conn.tls || 0)) {
     state.conn = { ...state.conn, ...t };
@@ -293,10 +283,11 @@ function renderConn(t) {
   set('bar-tcp', 'val-tcp', t.tcp);
   set('bar-tls', 'val-tls', t.tls);
   set('bar-ttfb', 'val-ttfb', t.ttfb);
-  $('val-ttfb').className = gradeTtfb(t.ttfb); // web.dev bands
 }
 
 const PROXY_PATTERNS = /^(via|forwarded|x-forwarded-|x-real-ip|x-client-ip|proxy-|x-zscaler|zscaler|x-bluecoat|x-cache|x-cache-lookup|cf-connecting-ip|client-ip|x-forwarded-server|x-sinkhole)/i;
+
+let proxiedAutoset = false;
 
 function renderProxy(data) {
   const headers = data.headers || {};
@@ -310,6 +301,9 @@ function renderProxy(data) {
     verdict.className = 'verdict verdict-direct';
     verdict.textContent = '✓ No typical proxy headers seen at the server. (Note: Render itself also sits behind a load balancer.)';
   }
+
+  // Pre-fill the with/without-proxy checkbox from detection, once (user can override).
+  if (!proxiedAutoset) { $('proxied').checked = proxyHeaders.length > 0; proxiedAutoset = true; }
 
   const kv = $('proxy-kv');
   kv.innerHTML = '';
@@ -347,7 +341,6 @@ function drawSparkline(canvas, data) {
   const x = (i) => pad + (i / (data.length - 1 || 1)) * (W - 2 * pad);
   const y = (v) => H - pad - ((v - min) / range) * (H - 2 * pad);
 
-  // area
   ctx.beginPath();
   ctx.moveTo(x(0), H);
   data.forEach((v, i) => ctx.lineTo(x(i), y(v)));
@@ -356,7 +349,6 @@ function drawSparkline(canvas, data) {
   ctx.fillStyle = 'rgba(79,157,255,.12)';
   ctx.fill();
 
-  // line
   ctx.beginPath();
   data.forEach((v, i) => (i ? ctx.lineTo(x(i), y(v)) : ctx.moveTo(x(i), y(v))));
   ctx.strokeStyle = '#4f9dff';
@@ -365,7 +357,7 @@ function drawSparkline(canvas, data) {
 }
 
 /* ============================================================
- * Summary / interpretation (heuristic, never a hard verdict)
+ * Summary — present raw numbers, push the user to the comparison
  * ========================================================== */
 
 function renderSummary() {
@@ -374,33 +366,21 @@ function renderSummary() {
   const items = [];
   const add = (level, text) => items.push({ level, text });
 
-  if (state.conn && state.conn.tls != null) {
-    const tls = state.conn.tls;
-    if (tls > 150) add('bad', `TLS handshake takes ${fmt(tls)} ms — strongly elevated, typical of SSL inspection by a proxy.`);
-    else if (tls > 60) add('warn', `TLS handshake ${fmt(tls)} ms — slightly elevated; may indicate interception.`);
-    else if (tls > 0) add('good', `TLS handshake ${fmt(tls)} ms — normal, no clear inspection overhead.`);
-  }
+  add('warn', 'These are absolute numbers: they include the server\'s own latency and your distance to it, so on their own they do NOT reveal the proxy\'s cost.');
 
-  if (state.latency) {
-    const { median, jitter } = state.latency;
-    add('good', `Median latency ${fmt(median)} ms.`);
-    if (jitter > median * 0.5 && jitter > 15) add('warn', `High jitter (${fmt(jitter)} ms) — variable proxy/queueing delay.`);
+  if (state.latency) add('good', `Latency median ${fmt(state.latency.median)} ms · jitter ${fmt(state.latency.jitter)} ms.`);
+  if (state.conn && state.conn.tls != null && state.conn.tls > 0) {
+    add('good', `TLS handshake ${fmt(state.conn.tls)} ms — where SSL inspection adds cost (it also contains a round trip, so compare to isolate it).`);
   }
-
-  if (state.download) {
-    const cls = state.download.ttfbMs > 800 ? 'warn' : 'good';
-    add(cls, `Download ${fmt(state.download.mbps)} Mbit/s, TTFB ${fmt(state.download.ttfbMs)} ms (web.dev: ≤800 ms good).`);
-  }
-  if (state.upload) {
-    add('good', `Upload ${fmt(state.upload.mbps)} Mbit/s.`);
-  }
+  if (state.download) add('good', `Download ${fmt(state.download.mbps)} Mbit/s · TTFB ${fmt(state.download.ttfbMs)} ms.`);
+  if (state.upload) add('good', `Upload ${fmt(state.upload.mbps)} Mbit/s.`);
 
   if (state.proxy) {
     const hdrs = Object.keys(state.proxy.headers || {}).filter((k) => PROXY_PATTERNS.test(k));
     if (hdrs.length) add('warn', `Proxy headers present: ${hdrs.join(', ')}.`);
   }
 
-  add('good', 'Tip: save this run, mark a direct (un-proxied) run as ◎ baseline, then the Δ shows the proxy overhead vs Zscaler\'s ≤100 ms p95 SLA.');
+  add('good', 'To measure the proxy: save this run, run again WITHOUT the proxy, mark the no-proxy run as ◎ baseline. The coloured Δ in the table is the proxy\'s impact (≤100 ms p95 = within Zscaler\'s SLA).');
 
   for (const it of items) {
     const li = document.createElement('li');
@@ -412,29 +392,89 @@ function renderSummary() {
 }
 
 /* ============================================================
- * Snapshots (localStorage) for with-proxy vs without-proxy
+ * Snapshot storage — PostgreSQL when available, else localStorage
  * ========================================================== */
 
 const SNAP_KEY = 'pptester.snapshots.v1';
-const BASE_KEY = 'pptester.baselineTs.v1';
+const BASE_KEY = 'pptester.baselineId.v1';
+const MIGRATED_KEY = 'pptester.migrated.v1';
 
-function loadSnapshots() {
-  try { return JSON.parse(localStorage.getItem(SNAP_KEY)) || []; }
-  catch (_) { return []; }
+let storageMode = 'local';   // resolved in init()
+let snapshotsCache = [];
+
+function snapId(s) { return s.id != null ? s.id : s.ts; }
+
+function loadLocal() { try { return JSON.parse(localStorage.getItem(SNAP_KEY)) || []; } catch (_) { return []; } }
+function saveLocal(list) { localStorage.setItem(SNAP_KEY, JSON.stringify(list)); }
+
+function getBaselineId() { return localStorage.getItem(BASE_KEY); }
+function setBaselineId(id) {
+  if (id == null) localStorage.removeItem(BASE_KEY);
+  else localStorage.setItem(BASE_KEY, String(id));
 }
-function saveSnapshots(list) {
-  localStorage.setItem(SNAP_KEY, JSON.stringify(list));
+
+async function apiFetchSnapshots() {
+  const res = await fetch('/api/snapshots', { cache: 'no-store' });
+  if (!res.ok) throw new Error('list ' + res.status);
+  return res.json();
 }
-function getBaselineTs() { return localStorage.getItem(BASE_KEY); }
-function setBaselineTs(ts) {
-  if (ts == null) localStorage.removeItem(BASE_KEY);
-  else localStorage.setItem(BASE_KEY, String(ts));
+
+async function listSnapshots() {
+  if (storageMode === 'db') return apiFetchSnapshots();
+  return loadLocal().map((s) => ({ ...s, id: s.id != null ? s.id : s.ts }));
+}
+
+async function createSnapshotRecord(snap) {
+  if (storageMode === 'db') {
+    const res = await fetch('/api/snapshots', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(snap),
+    });
+    if (!res.ok) throw new Error('create ' + res.status);
+    return res.json();
+  }
+  const list = loadLocal();
+  snap.id = snap.ts;
+  list.push(snap);
+  saveLocal(list);
+  return snap;
+}
+
+async function renameSnapshotRecord(id, label) {
+  if (storageMode === 'db') {
+    const res = await fetch('/api/snapshots/' + id, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ label }),
+    });
+    if (!res.ok) throw new Error('rename ' + res.status);
+    return;
+  }
+  const list = loadLocal();
+  const it = list.find((s) => String(snapId(s)) === String(id));
+  if (it) { it.label = label; saveLocal(list); }
+}
+
+async function deleteSnapshotRecord(id) {
+  if (storageMode === 'db') {
+    const res = await fetch('/api/snapshots/' + id, { method: 'DELETE' });
+    if (!res.ok && res.status !== 204) throw new Error('delete ' + res.status);
+    return;
+  }
+  saveLocal(loadLocal().filter((s) => String(snapId(s)) !== String(id)));
+}
+
+async function clearSnapshotRecords() {
+  if (storageMode === 'db') {
+    const res = await fetch('/api/snapshots', { method: 'DELETE' });
+    if (!res.ok && res.status !== 204) throw new Error('clear ' + res.status);
+    return;
+  }
+  saveLocal([]);
 }
 
 function currentSnapshot(label) {
   return {
     label,
     ts: Date.now(),
+    proxied: $('proxied').checked,
     latency: state.latency ? { median: state.latency.median, jitter: state.latency.jitter } : null,
     download: state.download ? state.download.mbps : null,
     upload: state.upload ? state.upload.mbps : null,
@@ -443,47 +483,89 @@ function currentSnapshot(label) {
   };
 }
 
+// One-time copy of any existing localStorage snapshots into a fresh DB.
+async function maybeMigrate() {
+  if (storageMode !== 'db') return;
+  if (localStorage.getItem(MIGRATED_KEY)) return;
+  let dbList = [];
+  try { dbList = await apiFetchSnapshots(); } catch (_) { return; }
+  const local = loadLocal();
+  if (dbList.length === 0 && local.length > 0) {
+    let n = 0;
+    for (const s of local) {
+      try {
+        await createSnapshotRecord({
+          label: s.label, proxied: s.proxied, latency: s.latency,
+          download: s.download, upload: s.upload, ttfb: s.ttfb, tls: s.tls,
+        });
+        n++;
+      } catch (_) { /* ignore individual failures */ }
+    }
+    if (n) log(`Migrated ${n} local snapshot(s) to the database.`);
+  }
+  localStorage.setItem(MIGRATED_KEY, '1');
+}
+
+/* ---------- rendering the snapshot table ---------- */
+
 function appendCell(tr, text) {
   const td = document.createElement('td');
   td.textContent = text;
   tr.appendChild(td);
 }
 
-// Cell that shows a value plus, when a baseline is set, the colored delta
-// (proxy overhead) graded against Zscaler's 100 ms p95 SLA.
-function appendMetricCell(tr, value, baseValue, valueGradeCls) {
+// Value cell that, when a baseline is set, shows the delta vs baseline.
+//   unit 'ms'  -> latency-type; delta graded against Zscaler 100 ms p95 SLA.
+//   unit 'pct' -> throughput; delta shown as % change (no SLA verdict).
+function appendMetricCell(tr, value, baseValue, unit) {
   const td = document.createElement('td');
   const span = document.createElement('span');
   span.textContent = value != null ? fmt(value) : '–';
-  if (valueGradeCls) span.className = valueGradeCls;
   td.appendChild(span);
+
   if (value != null && baseValue != null) {
-    const delta = value - baseValue;
     const d = document.createElement('span');
-    d.className = 'delta ' + gradeOverhead(delta);
-    const sign = delta >= 0 ? '+' : '−';
-    d.textContent = ` Δ${sign}${fmt(Math.abs(delta))}`;
-    d.title = 'Added vs baseline — graded against Zscaler ≤100 ms p95 SLA';
+    if (unit === 'pct') {
+      const pct = baseValue ? (value / baseValue - 1) * 100 : 0;
+      const sign = pct >= 0 ? '+' : '−';
+      d.className = 'delta delta-muted';
+      d.textContent = ` Δ${sign}${fmt(Math.abs(pct))}%`;
+      d.title = 'Change vs baseline';
+    } else {
+      const delta = value - baseValue;
+      const sign = delta >= 0 ? '+' : '−';
+      d.className = 'delta ' + gradeOverhead(delta);
+      d.textContent = ` Δ${sign}${fmt(Math.abs(delta))}`;
+      d.title = 'Added vs baseline — graded against Zscaler ≤100 ms p95 SLA';
+    }
     td.appendChild(d);
   }
   tr.appendChild(td);
 }
 
-function renderSnapshots() {
-  const list = loadSnapshots();
+function appendProxyCell(tr, proxied) {
+  const td = document.createElement('td');
+  if (proxied === true) { td.innerHTML = '<span class="px-yes">✓ proxy</span>'; }
+  else if (proxied === false) { td.innerHTML = '<span class="px-no">✗ direct</span>'; }
+  else { td.textContent = '–'; }
+  tr.appendChild(td);
+}
+
+function renderSnapshotList(list) {
   const body = $('snapBody');
   body.innerHTML = '';
   if (!list.length) {
-    body.innerHTML = '<tr class="empty"><td colspan="9">No snapshots saved yet.</td></tr>';
+    body.innerHTML = '<tr class="empty"><td colspan="10">No snapshots saved yet.</td></tr>';
     return;
   }
 
-  const baseTs = getBaselineTs();
-  const baseline = list.find((s) => String(s.ts) === String(baseTs)) || null;
+  const baseId = getBaselineId();
+  const baseline = list.find((s) => String(snapId(s)) === String(baseId)) || null;
 
-  list.forEach((s, i) => {
-    const isBase = !!(baseline && String(s.ts) === String(baseline.ts));
-    const cmp = baseline && !isBase ? baseline : null; // compare this row against baseline
+  list.forEach((s) => {
+    const id = snapId(s);
+    const isBase = !!(baseline && String(id) === String(snapId(baseline)));
+    const cmp = baseline && !isBase ? baseline : null;
     const tr = document.createElement('tr');
     if (isBase) tr.className = 'baseline-row';
 
@@ -498,13 +580,14 @@ function renderSnapshots() {
     }
     tr.appendChild(tdLabel);
 
+    appendProxyCell(tr, s.proxied);
     appendCell(tr, new Date(s.ts).toLocaleString());
-    appendMetricCell(tr, s.latency ? s.latency.median : null, cmp && cmp.latency ? cmp.latency.median : null);
+    appendMetricCell(tr, s.latency ? s.latency.median : null, cmp && cmp.latency ? cmp.latency.median : null, 'ms');
     appendCell(tr, s.latency ? fmt(s.latency.jitter) : '–');
-    appendCell(tr, fmt(s.download));
-    appendCell(tr, fmt(s.upload));
-    appendMetricCell(tr, s.ttfb, cmp ? cmp.ttfb : null, gradeTtfb(s.ttfb));
-    appendCell(tr, s.tls != null ? fmt(s.tls) : '–');
+    appendMetricCell(tr, s.download, cmp ? cmp.download : null, 'pct');
+    appendMetricCell(tr, s.upload, cmp ? cmp.upload : null, 'pct');
+    appendMetricCell(tr, s.ttfb, cmp ? cmp.ttfb : null, 'ms');
+    appendMetricCell(tr, s.tls, cmp ? cmp.tls : null, 'ms');
 
     // Actions: baseline / rename / delete
     const tdActions = document.createElement('td');
@@ -513,32 +596,28 @@ function renderSnapshots() {
     const baseBtn = document.createElement('button');
     baseBtn.className = 'snap-base' + (isBase ? ' active' : '');
     baseBtn.textContent = '◎';
-    baseBtn.title = isBase ? 'Unset baseline' : 'Set as direct baseline';
-    baseBtn.onclick = () => { setBaselineTs(isBase ? null : s.ts); renderSnapshots(); };
+    baseBtn.title = isBase ? 'Unset baseline' : 'Set as direct (no-proxy) baseline';
+    baseBtn.onclick = () => { setBaselineId(isBase ? null : id); renderSnapshotList(snapshotsCache); };
 
     const editBtn = document.createElement('button');
     editBtn.className = 'snap-edit'; editBtn.textContent = '✎'; editBtn.title = 'Rename';
-    editBtn.onclick = () => {
-      const l = loadSnapshots();
-      if (!l[i]) return;
-      const name = prompt('New label for this snapshot:', l[i].label);
-      if (name == null) return;            // cancelled
+    editBtn.onclick = async () => {
+      const name = prompt('New label for this snapshot:', s.label);
+      if (name == null) return;
       const trimmed = name.trim();
-      if (!trimmed) return;                // empty -> keep old label
-      l[i].label = trimmed;
-      saveSnapshots(l);
-      renderSnapshots();
-      log('Snapshot renamed to: ' + trimmed);
+      if (!trimmed) return;
+      try { await renameSnapshotRecord(id, trimmed); await refreshSnapshots(); log('Snapshot renamed to: ' + trimmed); }
+      catch (err) { log('Rename failed: ' + err.message); }
     };
 
     const delBtn = document.createElement('button');
     delBtn.className = 'snap-del'; delBtn.textContent = '✕'; delBtn.title = 'Delete';
-    delBtn.onclick = () => {
-      const l = loadSnapshots();
-      const removed = l.splice(i, 1)[0];
-      saveSnapshots(l);
-      if (removed && String(removed.ts) === String(getBaselineTs())) setBaselineTs(null);
-      renderSnapshots();
+    delBtn.onclick = async () => {
+      try {
+        await deleteSnapshotRecord(id);
+        if (String(id) === String(getBaselineId())) setBaselineId(null);
+        await refreshSnapshots();
+      } catch (err) { log('Delete failed: ' + err.message); }
     };
 
     tdActions.appendChild(baseBtn);
@@ -547,6 +626,12 @@ function renderSnapshots() {
     tr.appendChild(tdActions);
     body.appendChild(tr);
   });
+}
+
+async function refreshSnapshots() {
+  try { snapshotsCache = await listSnapshots(); }
+  catch (err) { log('Could not load snapshots: ' + err.message); snapshotsCache = []; }
+  renderSnapshotList(snapshotsCache);
 }
 
 /* ============================================================
@@ -587,42 +672,56 @@ async function runSingle(test) {
   }
 }
 
+function setStorageBadge() {
+  const el = $('storageBadge');
+  if (!el) return;
+  if (storageMode === 'db') { el.textContent = '🗄 Database'; el.title = 'Snapshots are stored in PostgreSQL (shared)'; }
+  else { el.textContent = '💾 This browser'; el.title = 'No database configured — snapshots stored in localStorage'; }
+}
+
 async function init() {
-  // Server info + warm up the instance.
+  // Server info -> also tells us whether the database is available.
   try {
     const res = await fetch(cacheBust('/api/info'), { cache: 'no-store' });
     const info = await res.json();
+    storageMode = info && info.database ? 'db' : 'local';
     $('connDot').className = 'dot ok';
     $('connText').textContent = 'connected';
-    $('serverInfo').textContent = `${info.nodeVersion} · region ${info.region || '?'} · uptime ${info.uptimeSec}s`;
-    log('Connected to server.');
+    $('serverInfo').textContent = `${info.nodeVersion} · region ${info.region || '?'} · uptime ${info.uptimeSec}s · db ${info.database ? 'on' : 'off'}`;
+    log(`Connected to server (storage: ${storageMode === 'db' ? 'database' : 'localStorage'}).`);
   } catch (_) {
+    storageMode = 'local';
     $('connDot').className = 'dot err';
     $('connText').textContent = 'no connection';
     log('Could not reach server.');
   }
+  setStorageBadge();
 
   // Wire up controls.
   $('runAll').onclick = runAll;
   document.querySelectorAll('button[data-test]').forEach((b) => {
     b.onclick = () => runSingle(b.dataset.test);
   });
-  $('saveSnapshot').onclick = () => {
-    const label = prompt('Label for this snapshot (e.g. "With Zscaler" or "Direct"):', 'With proxy');
+  $('saveSnapshot').onclick = async () => {
+    const proxied = $('proxied').checked;
+    const label = prompt('Label for this snapshot:', proxied ? 'With proxy' : 'Direct');
     if (!label) return;
-    const list = loadSnapshots();
-    list.push(currentSnapshot(label));
-    saveSnapshots(list);
-    renderSnapshots();
-    log('Snapshot saved: ' + label);
+    try {
+      await createSnapshotRecord(currentSnapshot(label));
+      await refreshSnapshots();
+      log(`Snapshot saved: ${label} (${proxied ? 'through proxy' : 'direct'}).`);
+    } catch (err) { log('Save failed: ' + err.message); }
   };
-  $('clearSnapshots').onclick = () => {
-    if (confirm('Delete all snapshots?')) { saveSnapshots([]); setBaselineTs(null); renderSnapshots(); }
+  $('clearSnapshots').onclick = async () => {
+    if (!confirm('Delete all snapshots?')) return;
+    try { await clearSnapshotRecords(); setBaselineId(null); await refreshSnapshots(); }
+    catch (err) { log('Clear failed: ' + err.message); }
   };
 
   // Initial proxy/connection read so the dashboard isn't empty.
   runConnInfo().catch(() => {});
-  renderSnapshots();
+  await maybeMigrate();
+  await refreshSnapshots();
 }
 
 document.addEventListener('DOMContentLoaded', init);

@@ -3,6 +3,7 @@
 const express = require('express');
 const path = require('path');
 const crypto = require('crypto');
+const { Pool } = require('pg');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -21,6 +22,88 @@ const RANDOM_CHUNK = crypto.randomBytes(CHUNK_SIZE);
 
 const MAX_TRANSFER = 500 * 1024 * 1024; // 500 MiB hard cap per request
 
+/* ============================================================
+ * Database (optional) — Neon / PostgreSQL via DATABASE_URL.
+ * If DATABASE_URL is unset or unreachable, the snapshot endpoints return 503
+ * and the frontend falls back to localStorage.
+ * ========================================================== */
+const DATABASE_URL = process.env.DATABASE_URL;
+let pool = null;
+let dbReady = false;
+
+if (DATABASE_URL) {
+  // Normalise the connection string and decide on SSL:
+  //  - drop channel_binding: not all driver versions support SCRAM channel binding
+  //  - drop sslmode: we set ssl explicitly so the two can't disagree
+  //  - managed DBs (Neon, etc.) need TLS; a local dev DB does not.
+  let connectionString = DATABASE_URL;
+  let host = '';
+  try {
+    const u = new URL(DATABASE_URL);
+    u.searchParams.delete('channel_binding');
+    u.searchParams.delete('sslmode');
+    connectionString = u.toString();
+    host = u.hostname;
+  } catch (_) { /* fall back to the raw string */ }
+
+  const isLocal = /^(localhost|127\.0\.0\.1|::1)$/.test(host) || /sslmode=disable/i.test(DATABASE_URL);
+  pool = new Pool({
+    connectionString,
+    ssl: isLocal ? false : { rejectUnauthorized: false },
+    max: 5,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 10000,
+  });
+  pool.on('error', (err) => console.error('pg pool error:', err.message));
+  initDb();
+} else {
+  console.log('No DATABASE_URL set — snapshots will be stored in the browser (localStorage).');
+}
+
+async function initDb() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS snapshots (
+        id BIGSERIAL PRIMARY KEY,
+        label TEXT NOT NULL,
+        proxied BOOLEAN,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        latency_median DOUBLE PRECISION,
+        latency_jitter DOUBLE PRECISION,
+        download_mbps DOUBLE PRECISION,
+        upload_mbps DOUBLE PRECISION,
+        ttfb_ms DOUBLE PRECISION,
+        tls_ms DOUBLE PRECISION,
+        client_ip TEXT,
+        user_agent TEXT
+      );
+    `);
+    dbReady = true;
+    console.log('Database ready — snapshots will be stored in PostgreSQL.');
+  } catch (err) {
+    dbReady = false;
+    console.error('Database init failed (falling back to localStorage):', err.message);
+  }
+}
+
+const num = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
+
+function rowToSnapshot(r) {
+  return {
+    id: Number(r.id),
+    label: r.label,
+    proxied: r.proxied,
+    ts: new Date(r.created_at).getTime(),
+    latency: (r.latency_median != null || r.latency_jitter != null)
+      ? { median: r.latency_median, jitter: r.latency_jitter }
+      : null,
+    download: r.download_mbps,
+    upload: r.upload_mbps,
+    ttfb: r.ttfb_ms,
+    tls: r.tls_ms,
+  };
+}
+
 // Disable caching everywhere, expose timing to the Resource Timing API, and
 // allow cross-origin use so the page can optionally be hosted elsewhere.
 app.use((req, res, next) => {
@@ -29,7 +112,7 @@ app.use((req, res, next) => {
   res.set('Expires', '0');
   res.set('Timing-Allow-Origin', '*');
   res.set('Access-Control-Allow-Origin', '*');
-  res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.set('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
   res.set('Access-Control-Allow-Headers', 'Content-Type');
   res.set('Access-Control-Expose-Headers', 'Server-Timing, X-Server-Time, Content-Length');
   if (req.method === 'OPTIONS') return res.status(204).end();
@@ -37,15 +120,11 @@ app.use((req, res, next) => {
 });
 
 // --- Latency probe -------------------------------------------------------
-// Smallest possible response. The client fires many of these and measures the
-// round-trip time; over a kept-alive connection this isolates the per-request
-// overhead a proxy adds.
 app.get('/api/ping', (req, res) => {
   res.json({ t: Date.now() });
 });
 
 // --- Download throughput -------------------------------------------------
-// Streams `bytes` of random data with backpressure handling.
 app.get('/api/download', (req, res) => {
   let bytes = parseInt(req.query.bytes, 10);
   if (!Number.isFinite(bytes) || bytes < 0) bytes = 10 * 1024 * 1024;
@@ -74,8 +153,6 @@ app.get('/api/download', (req, res) => {
 });
 
 // --- Upload throughput ---------------------------------------------------
-// Consumes the request body and reports how many bytes arrived and how long
-// the server spent receiving them.
 app.post('/api/upload', (req, res) => {
   const start = process.hrtime.bigint();
   let bytes = 0;
@@ -97,8 +174,6 @@ app.post('/api/upload', (req, res) => {
 });
 
 // --- Header / proxy inspection ------------------------------------------
-// Echoes what the server actually received so the client can detect proxy
-// injection (Via, X-Forwarded-For, Zscaler headers, ...) and the hop chain.
 app.get('/api/headers', (req, res) => {
   res.json({
     ip: req.ip,
@@ -121,7 +196,83 @@ app.get('/api/info', (req, res) => {
     nodeVersion: process.version,
     region: process.env.RENDER_REGION || null,
     uptimeSec: Math.round(process.uptime()),
+    database: dbReady,
   });
+});
+
+/* ============================================================
+ * Snapshot persistence endpoints (require a working database)
+ * ========================================================== */
+const requireDb = (req, res, next) => {
+  if (!pool || !dbReady) return res.status(503).json({ error: 'database not configured' });
+  next();
+};
+
+app.get('/api/snapshots', requireDb, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM snapshots ORDER BY created_at DESC LIMIT 500');
+    res.json(rows.map(rowToSnapshot));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/snapshots', requireDb, express.json({ limit: '64kb' }), async (req, res) => {
+  const b = req.body || {};
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO snapshots
+        (label, proxied, latency_median, latency_jitter, download_mbps, upload_mbps, ttfb_ms, tls_ms, client_ip, user_agent)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       RETURNING *`,
+      [
+        String(b.label || 'snapshot').slice(0, 200),
+        typeof b.proxied === 'boolean' ? b.proxied : null,
+        num(b.latency && b.latency.median), num(b.latency && b.latency.jitter),
+        num(b.download), num(b.upload), num(b.ttfb), num(b.tls),
+        req.ip, String(req.headers['user-agent'] || '').slice(0, 300),
+      ]
+    );
+    res.status(201).json(rowToSnapshot(rows[0]));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch('/api/snapshots/:id', requireDb, express.json({ limit: '8kb' }), async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const label = req.body && req.body.label;
+  if (!Number.isFinite(id) || !label) return res.status(400).json({ error: 'bad request' });
+  try {
+    const { rows } = await pool.query(
+      'UPDATE snapshots SET label=$1 WHERE id=$2 RETURNING *',
+      [String(label).slice(0, 200), id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'not found' });
+    res.json(rowToSnapshot(rows[0]));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/snapshots/:id', requireDb, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
+  try {
+    await pool.query('DELETE FROM snapshots WHERE id=$1', [id]);
+    res.status(204).end();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/snapshots', requireDb, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM snapshots');
+    res.status(204).end();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // --- Static frontend -----------------------------------------------------

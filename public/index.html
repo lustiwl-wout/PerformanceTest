@@ -28,6 +28,9 @@
     <section class="panel controls">
       <div class="control-row">
         <button id="runAll" class="btn btn-primary">▶ Run all tests</button>
+        <label class="proxied-toggle" title="Tick this if this run goes through the proxy (Zscaler). Auto-detected, but you decide.">
+          <input type="checkbox" id="proxied" /> <span>Through the proxy</span>
+        </label>
         <button id="saveSnapshot" class="btn" disabled>＋ Save snapshot</button>
         <div class="spacer"></div>
         <details class="settings">
@@ -71,7 +74,7 @@
           <div><label>jitter</label><span id="lat-jit">–</span></div>
         </div>
         <canvas id="lat-spark" class="spark" width="600" height="80"></canvas>
-        <p class="hint">A high median or jitter indicates per-request proxy overhead.</p>
+        <p class="hint">Absolute value includes your distance to the server — the proxy's share is the <b>Δ vs. a no-proxy run</b> below.</p>
       </article>
 
       <!-- Download -->
@@ -90,7 +93,7 @@
           <div><label>time</label><span id="dl-time">–</span></div>
           <div><label>MB/s</label><span id="dl-mbs">–</span></div>
         </div>
-        <p class="hint">Low throughput vs. direct = throttling / SSL inspection. TTFB coloured per <a href="https://web.dev/articles/ttfb" target="_blank" rel="noopener">web.dev</a> (≤800 ms good).</p>
+        <p class="hint">These are absolute numbers (incl. server distance). Compare with vs. without proxy for the proxy's real cost.</p>
       </article>
 
       <!-- Upload -->
@@ -124,7 +127,7 @@
           <div class="bar-row"><label>TLS</label><div class="bar"><span id="bar-tls"></span></div><b id="val-tls">–</b></div>
           <div class="bar-row"><label>TTFB</label><div class="bar"><span id="bar-ttfb"></span></div><b id="val-ttfb">–</b></div>
         </div>
-        <p class="hint">A high <b>TLS</b> time is the key indicator of SSL inspection by the proxy. TTFB coloured per <a href="https://web.dev/articles/ttfb" target="_blank" rel="noopener">web.dev</a> bands.</p>
+        <p class="hint"><b>TLS</b> is where SSL inspection adds cost — but it also contains a round trip, so compare with vs. without proxy to isolate the proxy's share.</p>
       </article>
 
       <!-- Proxy detection -->
@@ -151,38 +154,44 @@
     <!-- Snapshots / comparison -->
     <section class="panel">
       <div class="card-head">
-        <h2>📊 Compare snapshots</h2>
+        <h2>📊 Compare snapshots <span id="storageBadge" class="storage-badge">–</span></h2>
         <button id="clearSnapshots" class="btn btn-sm btn-ghost">Clear</button>
       </div>
       <p class="hint">
-        Run the test <b>with</b> the proxy, save it as a snapshot, then run it
-        <b>without</b> (or from an unfiltered network) and compare below.
+        Tick <b>Through the proxy</b> above when relevant, run the tests and <b>Save snapshot</b>.
+        Do the same from a no-proxy network, then it's all about the <b>difference</b> between them.
       </p>
       <div class="table-wrap">
         <table id="snapTable">
           <caption class="snap-caption">
-            Set a ◎ <b>baseline</b> (direct, un-proxied run). The coloured <b>Δ</b> on Latency &amp; TTFB
-            is the proxy's added latency — <span class="grade-good">green ≤100 ms</span> /
-            <span class="grade-poor">red &gt;100 ms</span>, graded against Zscaler's
-            <a href="https://www.zscaler.com/legal/sla-support" target="_blank" rel="noopener">≤100 ms p95 ZIA Latency SLA</a>.
-            Absolute TTFB follows <a href="https://web.dev/articles/ttfb" target="_blank" rel="noopener">web.dev</a> (≤800 ms good).
+            Absolute values include the server's own latency &amp; your distance to it — so they don't reveal
+            the proxy on their own. Set a ◎ <b>baseline</b> (a no-proxy run); the coloured <b>Δ</b> is the
+            proxy's impact — Latency/TTFB/TLS graded <span class="grade-good">green ≤100 ms</span> /
+            <span class="grade-poor">red &gt;100 ms</span> against Zscaler's
+            <a href="https://www.zscaler.com/legal/sla-support" target="_blank" rel="noopener">≤100 ms p95 ZIA Latency SLA</a>;
+            throughput shown as % change.
           </caption>
           <thead>
             <tr>
-              <th>Label</th><th>Time</th>
+              <th>Label</th>
+              <th>Proxy<span class="th-note">with / without</span></th>
+              <th>Time</th>
               <th>Latency (ms)<span class="th-note">Δ vs ≤100 ms SLA</span></th><th>Jitter</th>
-              <th>Download (Mbit/s)</th><th>Upload (Mbit/s)</th>
-              <th>TTFB<span class="th-note">web.dev · Δ vs SLA</span></th><th>TLS</th><th></th>
+              <th>Download (Mbit/s)<span class="th-note">Δ % vs base</span></th>
+              <th>Upload (Mbit/s)<span class="th-note">Δ % vs base</span></th>
+              <th>TTFB<span class="th-note">Δ vs ≤100 ms SLA</span></th>
+              <th>TLS<span class="th-note">Δ vs ≤100 ms SLA</span></th>
+              <th></th>
             </tr>
           </thead>
           <tbody id="snapBody">
-            <tr class="empty"><td colspan="9">No snapshots saved yet.</td></tr>
+            <tr class="empty"><td colspan="10">No snapshots saved yet.</td></tr>
           </tbody>
         </table>
       </div>
       <p class="src-note">
-        Note: web.dev's band targets full-page navigation, so on this lightweight endpoint the
-        <b>Δ vs. baseline</b> (proxy overhead, ≤100 ms p95 SLA) is the more telling signal.
+        Note: keep the server region close to you, so the baseline isn't dominated by distance — the
+        <b>Δ between runs</b> is what isolates the proxy.
       </p>
     </section>
 

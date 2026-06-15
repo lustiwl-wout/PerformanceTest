@@ -11,3 +11,7 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "20"
+      # Set the Neon/PostgreSQL connection string in the Render dashboard.
+      # sync: false keeps the secret out of this repo.
+      - key: DATABASE_URL
+        sync: false
