@@ -83,9 +83,11 @@ for local development.
    (auto-incrementing), tagged with the proxy state and group.
 4. Run again **without** the proxy (bypass / different network / hotspot) with the
    box unticked, so you also have some direct scans.
-5. The table shows the **median of your direct scans** (the baseline) and the
-   **median of your with-proxy scans** at the top; the **Δ** is the proxy's *added*
-   cost. Click a **Proxy** cell (✓ / ✗) to re-tag a scan, ✎ to rename, ✕ to delete.
+5. The results table groups scans by **Group**: each group shows its **Direct baseline**
+   median and **With proxy** median (with the **Δ**), plus a **verdict** (good / not good)
+   based on whether the proxy worsens any metric by more than the tolerance (Settings,
+   default 20%). Tick **Show individual scans** to edit — re-tag (click the Proxy cell),
+   rename (✎) or delete (✕) a scan.
 
 > Absolute numbers include your distance to the server, so they don't reveal the
 > proxy on their own — **the difference vs. the direct baseline is the answer.**
@@ -93,19 +95,18 @@ for local development.
 
 ## Reading the comparison
 
-The tool deliberately shows **raw differences**, not pass/fail verdicts. Absolute
-numbers are dominated by your distance to the server, so only the **Δ vs. the
-direct-median baseline** matters (the baseline is the median of all your
-direct/no-proxy scans; a *With proxy* median row sits right under it for an
-at-a-glance aggregate Δ):
+The comparison is **per scan group**: each group's with-proxy median is compared to
+its direct-scan median (the baseline). Absolute numbers are dominated by your distance
+to the server, so the **Δ** is what matters:
 
 - **Latency / TTFB / TLS** — the millisecond difference the proxy adds.
 - **Download / Upload** — the % change vs. the baseline.
 
-What counts as "too much" depends on your own link and expectations, so judge it
-from the size of the difference between the with-proxy and no-proxy runs. TLS
-handshake background (where SSL inspection adds cost): TLS 1.3 is 1 round trip vs.
-2 for TLS 1.2
+A group's **verdict** is *not good* when the proxy worsens any of these by more than the
+**tolerance** (Settings → Verdict tolerance, default 20 %); otherwise *good*. Pick a
+tolerance that matches what you consider acceptable — there is no absolute standard, so
+the relative degradation vs. your own direct baseline is the honest measure. TLS handshake
+background (where SSL inspection adds cost): TLS 1.3 is 1 round trip vs. 2 for TLS 1.2
 ([ThousandEyes](https://www.thousandeyes.com/blog/optimizing-web-performance-tls-1-3),
 [Cloudflare](https://blog.cloudflare.com/introducing-0-rtt/)).
 

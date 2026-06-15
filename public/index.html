@@ -48,6 +48,9 @@
             <label>Upload (MB)
               <input type="number" id="uploadMb" value="10" min="1" max="500" />
             </label>
+            <label title="A group is flagged 'not good' when the proxy worsens any key metric by more than this.">Verdict tolerance (%)
+              <input type="number" id="verdictTol" value="20" min="0" max="500" />
+            </label>
           </div>
         </details>
       </div>
@@ -57,146 +60,146 @@
       </div>
     </section>
 
-    <!-- Result cards -->
-    <section class="grid">
-      <!-- Latency -->
-      <article class="panel card" id="card-latency">
-        <header class="card-head">
-          <h2>🕒 Latency</h2>
-          <button class="btn btn-sm" data-test="latency">Test</button>
-        </header>
-        <div class="metric">
-          <span class="metric-value" id="lat-median">–</span>
-          <span class="metric-unit">ms median</span>
-        </div>
-        <div class="submetrics" id="lat-sub">
-          <div><label>min</label><span id="lat-min">–</span></div>
-          <div><label>avg</label><span id="lat-avg">–</span></div>
-          <div><label>p95</label><span id="lat-p95">–</span></div>
-          <div><label>max</label><span id="lat-max">–</span></div>
-          <div><label>jitter</label><span id="lat-jit">–</span></div>
-        </div>
-        <canvas id="lat-spark" class="spark" width="600" height="80"></canvas>
-        <p class="hint">Absolute value includes your distance to the server — the proxy's share is the <b>Δ vs. the direct baseline</b> below.</p>
-      </article>
-
-      <!-- Download -->
-      <article class="panel card" id="card-download">
-        <header class="card-head">
-          <h2>⬇ Download</h2>
-          <button class="btn btn-sm" data-test="download">Test</button>
-        </header>
-        <div class="metric">
-          <span class="metric-value" id="dl-mbps">–</span>
-          <span class="metric-unit">Mbit/s</span>
-        </div>
-        <div class="submetrics">
-          <div><label>TTFB</label><span id="dl-ttfb">–</span></div>
-          <div><label>data</label><span id="dl-size">–</span></div>
-          <div><label>time</label><span id="dl-time">–</span></div>
-          <div><label>MB/s</label><span id="dl-mbs">–</span></div>
-        </div>
-        <p class="hint">These are absolute numbers (incl. server distance). Compare with vs. without proxy for the proxy's real cost.</p>
-      </article>
-
-      <!-- Upload -->
-      <article class="panel card" id="card-upload">
-        <header class="card-head">
-          <h2>⬆ Upload</h2>
-          <button class="btn btn-sm" data-test="upload">Test</button>
-        </header>
-        <div class="metric">
-          <span class="metric-value" id="ul-mbps">–</span>
-          <span class="metric-unit">Mbit/s</span>
-        </div>
-        <div class="submetrics">
-          <div><label>data</label><span id="ul-size">–</span></div>
-          <div><label>time</label><span id="ul-time">–</span></div>
-          <div><label>MB/s</label><span id="ul-mbs">–</span></div>
-          <div><label>server</label><span id="ul-srv">–</span></div>
-        </div>
-        <p class="hint">Uploads often pass through the proxy buffer first.</p>
-      </article>
-
-      <!-- Connection breakdown -->
-      <article class="panel card" id="card-conn">
-        <header class="card-head">
-          <h2>🔌 Connection</h2>
-          <button class="btn btn-sm" data-test="conn">Refresh</button>
-        </header>
-        <div class="bars" id="conn-bars">
-          <div class="bar-row"><label>DNS</label><div class="bar"><span id="bar-dns"></span></div><b id="val-dns">–</b></div>
-          <div class="bar-row"><label>TCP</label><div class="bar"><span id="bar-tcp"></span></div><b id="val-tcp">–</b></div>
-          <div class="bar-row"><label>TLS</label><div class="bar"><span id="bar-tls"></span></div><b id="val-tls">–</b></div>
-          <div class="bar-row"><label>TTFB</label><div class="bar"><span id="bar-ttfb"></span></div><b id="val-ttfb">–</b></div>
-        </div>
-        <p class="hint"><b>TLS</b> is where SSL inspection adds cost — but it also contains a round trip, so compare with vs. without proxy to isolate the proxy's share.</p>
-      </article>
-
-      <!-- Proxy detection -->
-      <article class="panel card wide" id="card-proxy">
-        <header class="card-head">
-          <h2>🛡 Proxy detection</h2>
-          <button class="btn btn-sm" data-test="proxy">Refresh</button>
-        </header>
-        <div id="proxy-verdict" class="verdict verdict-unknown">Not checked yet</div>
-        <div class="kv" id="proxy-kv"></div>
-        <details class="raw-headers">
-          <summary>All received headers</summary>
-          <pre id="proxy-headers">–</pre>
-        </details>
-      </article>
-    </section>
-
-    <!-- Interpretation -->
-    <section class="panel" id="summaryPanel" hidden>
-      <h2>📋 Summary &amp; interpretation</h2>
-      <ul id="summaryList" class="summary-list"></ul>
-    </section>
-
-    <!-- Snapshots / comparison -->
+    <!-- ============ RESULTS (the main view) ============ -->
     <section class="panel">
       <div class="card-head">
-        <h2>📊 Compare scans <span id="storageBadge" class="storage-badge">–</span></h2>
-        <button id="clearSnapshots" class="btn btn-sm btn-ghost">Clear</button>
+        <h2>📊 Results per scan group <span id="storageBadge" class="storage-badge">–</span></h2>
+        <div class="results-controls">
+          <label class="mini-toggle"><input type="checkbox" id="showScans" /> Show individual scans</label>
+          <button id="clearSnapshots" class="btn btn-sm btn-ghost">Clear</button>
+        </div>
       </div>
       <p class="hint">
-        Tick <b>Through the proxy</b> when it applies, pick a <b>Group</b>, then <b>Run all tests</b> —
-        each run is saved automatically as <code>Scan N</code>. Do runs both with and without the proxy;
-        the comparison is the difference between them.
+        Tick <b>Through the proxy</b> when it applies, pick a <b>Group</b>, then <b>Run all tests</b> — each run is
+        saved automatically. Every group gets its own <b>Direct baseline</b> and <b>With proxy</b> medians plus a
+        <b>verdict</b> from the proxy's Δ vs that group's baseline.
       </p>
       <div class="table-wrap">
         <table id="snapTable">
           <caption class="snap-caption">
-            The top rows show the <b>median of your direct scans</b> (the baseline) and the
-            <b>median of your with-proxy scans</b>; the <b>Δ</b> is the proxy's impact — Latency/TTFB/TLS in ms,
-            throughput as % change. Click a <b>Proxy</b> cell to re-tag a scan; relate scans with the
-            <b>Group</b> number. Absolute values include server distance, so the Δ is what matters.
+            Per scan group: the median of its direct scans (baseline) and the median of its with-proxy scans, with
+            the <b>Δ</b> (proxy impact) — Latency/TTFB/TLS in ms, throughput as % change. The group verdict flags
+            whether the proxy meaningfully degrades performance. Tick “Show individual scans” to edit or re-tag a scan.
           </caption>
           <thead>
             <tr>
-              <th>Label</th>
-              <th>Group</th>
+              <th>Result</th>
               <th>Proxy<span class="th-note">click to change</span></th>
-              <th>Time</th>
-              <th>Latency (ms)<span class="th-note">Δ vs baseline</span></th><th>Jitter</th>
+              <th>Latency (ms)<span class="th-note">Δ vs baseline</span></th>
               <th>Download (Mbit/s)<span class="th-note">Δ % vs base</span></th>
               <th>Upload (Mbit/s)<span class="th-note">Δ % vs base</span></th>
-              <th>TTFB<span class="th-note">Δ vs baseline</span></th>
-              <th>TLS<span class="th-note">Δ vs baseline</span></th>
+              <th>TTFB (ms)<span class="th-note">Δ vs baseline</span></th>
+              <th>TLS (ms)<span class="th-note">Δ vs baseline</span></th>
               <th></th>
             </tr>
           </thead>
           <tbody id="snapBody">
-            <tr class="empty"><td colspan="11">No scans saved yet.</td></tr>
+            <tr class="empty"><td colspan="8">No scans saved yet.</td></tr>
           </tbody>
         </table>
       </div>
       <p class="src-note">
-        Note: keep the server region close to you, so the baseline isn't dominated by distance — the
-        <b>Δ between runs</b> is what isolates the proxy.
+        Verdict is <b>not good</b> when the proxy worsens latency, TTFB, TLS or throughput by more than the
+        tolerance (Settings, default 20%). Absolute values include server distance, so the Δ is what matters.
       </p>
     </section>
+
+    <!-- ============ Optional live details (collapsed) ============ -->
+    <details class="live-details">
+      <summary class="live-summary">🔬 Live details of the last run (optional)</summary>
+
+      <section class="grid">
+        <!-- Latency -->
+        <article class="panel card" id="card-latency">
+          <header class="card-head">
+            <h2>🕒 Latency</h2>
+            <button class="btn btn-sm" data-test="latency">Test</button>
+          </header>
+          <div class="metric">
+            <span class="metric-value" id="lat-median">–</span>
+            <span class="metric-unit">ms median</span>
+          </div>
+          <div class="submetrics" id="lat-sub">
+            <div><label>min</label><span id="lat-min">–</span></div>
+            <div><label>avg</label><span id="lat-avg">–</span></div>
+            <div><label>p95</label><span id="lat-p95">–</span></div>
+            <div><label>max</label><span id="lat-max">–</span></div>
+            <div><label>jitter</label><span id="lat-jit">–</span></div>
+          </div>
+          <canvas id="lat-spark" class="spark" width="600" height="80"></canvas>
+        </article>
+
+        <!-- Download -->
+        <article class="panel card" id="card-download">
+          <header class="card-head">
+            <h2>⬇ Download</h2>
+            <button class="btn btn-sm" data-test="download">Test</button>
+          </header>
+          <div class="metric">
+            <span class="metric-value" id="dl-mbps">–</span>
+            <span class="metric-unit">Mbit/s</span>
+          </div>
+          <div class="submetrics">
+            <div><label>TTFB</label><span id="dl-ttfb">–</span></div>
+            <div><label>data</label><span id="dl-size">–</span></div>
+            <div><label>time</label><span id="dl-time">–</span></div>
+            <div><label>MB/s</label><span id="dl-mbs">–</span></div>
+          </div>
+        </article>
+
+        <!-- Upload -->
+        <article class="panel card" id="card-upload">
+          <header class="card-head">
+            <h2>⬆ Upload</h2>
+            <button class="btn btn-sm" data-test="upload">Test</button>
+          </header>
+          <div class="metric">
+            <span class="metric-value" id="ul-mbps">–</span>
+            <span class="metric-unit">Mbit/s</span>
+          </div>
+          <div class="submetrics">
+            <div><label>data</label><span id="ul-size">–</span></div>
+            <div><label>time</label><span id="ul-time">–</span></div>
+            <div><label>MB/s</label><span id="ul-mbs">–</span></div>
+            <div><label>server</label><span id="ul-srv">–</span></div>
+          </div>
+        </article>
+
+        <!-- Connection breakdown -->
+        <article class="panel card" id="card-conn">
+          <header class="card-head">
+            <h2>🔌 Connection</h2>
+            <button class="btn btn-sm" data-test="conn">Refresh</button>
+          </header>
+          <div class="bars" id="conn-bars">
+            <div class="bar-row"><label>DNS</label><div class="bar"><span id="bar-dns"></span></div><b id="val-dns">–</b></div>
+            <div class="bar-row"><label>TCP</label><div class="bar"><span id="bar-tcp"></span></div><b id="val-tcp">–</b></div>
+            <div class="bar-row"><label>TLS</label><div class="bar"><span id="bar-tls"></span></div><b id="val-tls">–</b></div>
+            <div class="bar-row"><label>TTFB</label><div class="bar"><span id="bar-ttfb"></span></div><b id="val-ttfb">–</b></div>
+          </div>
+          <p class="hint"><b>TLS</b> is where SSL inspection adds cost — but it also contains a round trip, so the Δ vs. the direct baseline is what isolates the proxy.</p>
+        </article>
+
+        <!-- Proxy detection -->
+        <article class="panel card wide" id="card-proxy">
+          <header class="card-head">
+            <h2>🛡 Proxy detection</h2>
+            <button class="btn btn-sm" data-test="proxy">Refresh</button>
+          </header>
+          <div id="proxy-verdict" class="verdict verdict-unknown">Not checked yet</div>
+          <div class="kv" id="proxy-kv"></div>
+          <details class="raw-headers">
+            <summary>All received headers</summary>
+            <pre id="proxy-headers">–</pre>
+          </details>
+        </article>
+      </section>
+
+      <section class="panel" id="summaryPanel" hidden>
+        <h2>📋 Summary of the last run</h2>
+        <ul id="summaryList" class="summary-list"></ul>
+      </section>
+    </details>
 
     <!-- Log -->
     <section class="panel">

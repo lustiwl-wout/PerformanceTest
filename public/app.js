@@ -515,8 +515,52 @@ function appendMetricCell(tr, value, baseValue, unit) {
   tr.appendChild(td);
 }
 
-// A synthetic, highlighted median row (Direct baseline or With proxy).
-// `baseline` (when given) makes it show the Δ vs that baseline.
+// ---- Verdict: does the proxy meaningfully degrade this group? ----
+
+function currentTolerance() {
+  const v = parseFloat($('verdictTol') && $('verdictTol').value);
+  return Number.isFinite(v) && v >= 0 ? v / 100 : 0.20;
+}
+
+// Worst relative degradation of the proxy median vs the direct baseline.
+function worstDegradation(proxy, base) {
+  const items = [];
+  const up = (p, b) => (b ? (p - b) / b : null);    // higher = worse (latency/ttfb/tls)
+  const down = (p, b) => (b ? (b - p) / b : null);  // lower = worse (throughput)
+  const push = (k, v) => { if (v != null && isFinite(v)) items.push({ k, v }); };
+  push('latency', up(proxy.latency.median, base.latency.median));
+  push('TTFB', up(proxy.ttfb, base.ttfb));
+  push('TLS', up(proxy.tls, base.tls));
+  push('download', down(proxy.download, base.download));
+  push('upload', down(proxy.upload, base.upload));
+  if (!items.length) return null;
+  return items.reduce((a, b) => (b.v > a.v ? b : a));
+}
+
+function groupVerdict(base, proxy, tol) {
+  if (!base && !proxy) return { level: 'na', text: 'no scans' };
+  if (!base) return { level: 'na', text: 'add a direct (no-proxy) scan' };
+  if (!proxy) return { level: 'na', text: 'add a with-proxy scan' };
+  const w = worstDegradation(proxy, base);
+  if (!w) return { level: 'na', text: 'not enough data' };
+  const pct = Math.round(w.v * 100);
+  if (w.v > tol) return { level: 'bad', text: `not good — ${w.k} +${pct}%` };
+  return { level: 'good', text: 'good' };
+}
+
+function groupScans(list) {
+  const groups = new Map();
+  for (const s of list) {
+    const g = Number.isFinite(s.group) ? s.group : 0;
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(s);
+  }
+  return [...groups.entries()].sort((a, b) => a[0] - b[0]);
+}
+
+// ---- Rows (8 columns: Result | Proxy | Latency | Download | Upload | TTFB | TLS | actions) ----
+
+// A synthetic median row (Direct baseline or With proxy). `baseline` adds the Δ.
 function medianRow(m, label, pxText, pxClass, baseline) {
   const cmp = baseline || null;
   const tr = document.createElement('tr');
@@ -530,48 +574,42 @@ function medianRow(m, label, pxText, pxClass, baseline) {
   tdLabel.appendChild(tag);
   tr.appendChild(tdLabel);
 
-  appendCell(tr, '—');                                   // group
   const tdPx = document.createElement('td');
   tdPx.innerHTML = `<span class="${pxClass}">${pxText}</span>`;
-  tr.appendChild(tdPx);                                  // proxy
-  appendCell(tr, '—');                                   // time
+  tr.appendChild(tdPx);
 
   appendMetricCell(tr, m.latency.median, cmp ? cmp.latency.median : null, 'ms');
-  appendCell(tr, m.latency.jitter != null ? fmt(m.latency.jitter) : '–');
   appendMetricCell(tr, m.download, cmp ? cmp.download : null, 'pct');
   appendMetricCell(tr, m.upload, cmp ? cmp.upload : null, 'pct');
   appendMetricCell(tr, m.ttfb, cmp ? cmp.ttfb : null, 'ms');
   appendMetricCell(tr, m.tls, cmp ? cmp.tls : null, 'ms');
-  appendCell(tr, '');                                    // actions
+  appendCell(tr, '');
   return tr;
 }
 
-function snapshotRow(s, baseline) {
-  // Δ (proxy impact) is shown on with-proxy rows, vs the direct-median baseline.
+// One individual scan row (only shown when "Show individual scans" is on).
+function scanRow(s, baseline) {
   const cmp = (baseline && s.proxied === true) ? baseline : null;
   const id = snapId(s);
   const tr = document.createElement('tr');
+  tr.className = 'scan-row';
 
   appendCell(tr, s.label);
-  appendCell(tr, s.group != null ? String(s.group) : '–');
 
-  // Proxy cell — click to switch with-proxy / direct.
   const tdPx = document.createElement('td');
   const pxBtn = document.createElement('button');
   pxBtn.className = 'px-toggle ' + (s.proxied === true ? 'px-yes' : s.proxied === false ? 'px-no' : 'px-unknown');
   pxBtn.textContent = s.proxied === true ? '✓ proxy' : s.proxied === false ? '✗ direct' : '– set';
   pxBtn.title = 'Click to change: with proxy / direct';
   pxBtn.onclick = async () => {
-    const next = s.proxied === true ? false : true; // direct/unknown -> proxy -> direct …
+    const next = s.proxied === true ? false : true;
     try { await updateSnapshot(id, { proxied: next }); await refreshSnapshots(); }
     catch (err) { log('Update failed: ' + err.message); }
   };
   tdPx.appendChild(pxBtn);
   tr.appendChild(tdPx);
 
-  appendCell(tr, new Date(s.ts).toLocaleString());
   appendMetricCell(tr, s.latency ? s.latency.median : null, cmp && cmp.latency ? cmp.latency.median : null, 'ms');
-  appendCell(tr, s.latency ? fmt(s.latency.jitter) : '–');
   appendMetricCell(tr, s.download, cmp ? cmp.download : null, 'pct');
   appendMetricCell(tr, s.upload, cmp ? cmp.upload : null, 'pct');
   appendMetricCell(tr, s.ttfb, cmp ? cmp.ttfb : null, 'ms');
@@ -604,42 +642,50 @@ function snapshotRow(s, baseline) {
   return tr;
 }
 
-function renderSnapshotList(list) {
+function groupHeadRow(name, verdict) {
+  const tr = document.createElement('tr');
+  tr.className = 'group-head';
+  const td = document.createElement('td');
+  td.colSpan = 8;
+  td.innerHTML = `<b></b> <span class="verdict-badge v-${verdict.level}"></span>`;
+  td.querySelector('b').textContent = name;
+  td.querySelector('.verdict-badge').textContent = verdict.text;
+  tr.appendChild(td);
+  return tr;
+}
+
+function renderResults(list) {
   const body = $('snapBody');
   body.innerHTML = '';
   if (!dbAvailable()) {
-    body.innerHTML = '<tr class="empty"><td colspan="11">No database connected — set DATABASE_URL to save and compare scans.</td></tr>';
+    body.innerHTML = '<tr class="empty"><td colspan="8">No database connected — set DATABASE_URL to save and compare scans.</td></tr>';
     return;
   }
   if (!list.length) {
-    body.innerHTML = '<tr class="empty"><td colspan="11">No scans saved yet.</td></tr>';
+    body.innerHTML = '<tr class="empty"><td colspan="8">No scans saved yet.</td></tr>';
     return;
   }
 
-  // Baseline = median of direct scans; the with-proxy median sits right under it.
-  const direct = medianOf(list.filter((s) => s.proxied === false));
-  const proxy = medianOf(list.filter((s) => s.proxied === true));
+  const tol = currentTolerance();
+  const showScans = $('showScans') && $('showScans').checked;
 
-  if (direct) {
-    body.appendChild(medianRow(direct, 'Direct baseline', 'direct', 'px-no', null));
-  } else {
-    const tr = document.createElement('tr');
-    tr.className = 'empty';
-    tr.innerHTML = '<td colspan="11">No direct (no-proxy) scans yet — untick “Through the proxy” and run the tests to form the baseline.</td>';
-    body.appendChild(tr);
-  }
-  if (proxy) {
-    body.appendChild(medianRow(proxy, 'With proxy', 'proxy', 'px-yes', direct));
-  }
+  for (const [g, scans] of groupScans(list)) {
+    const direct = medianOf(scans.filter((s) => s.proxied === false));
+    const proxy = medianOf(scans.filter((s) => s.proxied === true));
+    const verdict = groupVerdict(direct, proxy, tol);
 
-  list.forEach((s) => body.appendChild(snapshotRow(s, direct)));
+    body.appendChild(groupHeadRow(g === 0 ? 'Ungrouped' : 'Group ' + g, verdict));
+    if (direct) body.appendChild(medianRow(direct, 'Direct baseline', 'direct', 'px-no', null));
+    if (proxy) body.appendChild(medianRow(proxy, 'With proxy', 'proxy', 'px-yes', direct));
+    if (showScans) scans.forEach((s) => body.appendChild(scanRow(s, direct)));
+  }
 }
 
 async function refreshSnapshots() {
-  if (!dbAvailable()) { snapshotsCache = []; renderSnapshotList(snapshotsCache); return; }
+  if (!dbAvailable()) { snapshotsCache = []; renderResults(snapshotsCache); return; }
   try { snapshotsCache = await listSnapshots(); }
   catch (err) { log('Could not load snapshots: ' + err.message); snapshotsCache = []; }
-  renderSnapshotList(snapshotsCache);
+  renderResults(snapshotsCache);
 }
 
 /* ============================================================
@@ -721,6 +767,9 @@ async function init() {
     localStorage.setItem(GROUP_KEY, String(next));
     log('New scan group: ' + next);
   };
+
+  $('showScans').onchange = () => renderResults(snapshotsCache);
+  $('verdictTol').onchange = () => renderResults(snapshotsCache);
 
   $('clearSnapshots').onclick = async () => {
     if (!dbAvailable()) return;
