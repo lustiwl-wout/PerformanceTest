@@ -74,9 +74,10 @@ for local development.
 
 1. Open the site **through** your normal (Zscaler) connection.
 2. Tick **"Through the proxy"** (auto-detected, but you have the final say).
-3. Click **"Run all tests"**, then **"Save snapshot"** → label it e.g. `With Zscaler`.
-4. Run the test again **without** the proxy (bypass / different network / hotspot),
-   untick the box, and save it as `Direct`.
+3. Click **"Run all tests"** — the run is saved automatically as `Scan N`
+   (auto-incrementing), tagged with the proxy state. (Or **Save scan** manually.)
+4. Run again **without** the proxy (bypass / different network / hotspot) with the
+   box unticked, so you also have some direct scans.
 5. Your direct (no-proxy) runs are combined into a **median baseline** row, and the
    **Δ** on each with-proxy row shows the proxy's *added* cost. The **Proxy** column
    (✓ / ✗) records which run was which.

@@ -457,6 +457,27 @@ function currentSnapshot(label) {
   };
 }
 
+// Next auto-incrementing scan number, based on the highest "… N" already saved.
+function nextScanNumber(list) {
+  let max = 0;
+  for (const s of list) {
+    const m = /(\d+)\s*$/.exec(s.label || '');
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  return max + 1;
+}
+
+// Save the current run automatically with an increasing number ("Scan N").
+async function saveScan() {
+  if (!dbAvailable()) { log('No database connected — cannot save snapshots.'); return; }
+  const label = 'Scan ' + nextScanNumber(snapshotsCache);
+  try {
+    await createSnapshotRecord(currentSnapshot(label));
+    await refreshSnapshots();
+    log(`Saved ${label} (${$('proxied').checked ? 'through proxy' : 'direct'}).`);
+  } catch (err) { log('Save failed: ' + err.message); }
+}
+
 /* ---------- rendering the snapshot table ---------- */
 
 function appendCell(tr, text) {
@@ -614,6 +635,7 @@ async function runAll() {
     await runUpload();
     renderSummary();
     $('saveSnapshot').disabled = !dbAvailable();
+    if (dbAvailable()) await saveScan();
     log('All tests done.');
   } catch (err) {
     log('Error: ' + (err && err.message ? err.message : err));
@@ -669,17 +691,7 @@ async function init() {
   document.querySelectorAll('button[data-test]').forEach((b) => {
     b.onclick = () => runSingle(b.dataset.test);
   });
-  $('saveSnapshot').onclick = async () => {
-    if (!dbAvailable()) { log('No database connected — cannot save snapshots.'); return; }
-    const proxied = $('proxied').checked;
-    const label = prompt('Label for this snapshot:', proxied ? 'With proxy' : 'Direct');
-    if (!label) return;
-    try {
-      await createSnapshotRecord(currentSnapshot(label));
-      await refreshSnapshots();
-      log(`Snapshot saved: ${label} (${proxied ? 'through proxy' : 'direct'}).`);
-    } catch (err) { log('Save failed: ' + err.message); }
-  };
+  $('saveSnapshot').onclick = saveScan;
   $('clearSnapshots').onclick = async () => {
     if (!dbAvailable()) return;
     if (!confirm('Delete all snapshots?')) return;
