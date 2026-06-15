@@ -75,18 +75,8 @@
           <button id="clearSnapshots" class="btn btn-sm btn-ghost">Clear</button>
         </div>
       </div>
-      <p class="hint">
-        Tick <b>Through the proxy</b> when it applies, pick a <b>Group</b>, then <b>Run all tests</b> — each run is
-        saved automatically. Every group gets its own <b>Direct baseline</b> and <b>With proxy</b> medians plus a
-        <b>verdict</b> from the proxy's Δ vs that group's baseline.
-      </p>
       <div class="table-wrap">
         <table id="snapTable">
-          <caption class="snap-caption">
-            Per scan group: the median of its direct scans (baseline) and the median of its with-proxy scans, with
-            the <b>Δ</b> (proxy impact) — Latency/TTFB/TLS in ms, throughput as % change. The group verdict flags
-            whether the proxy meaningfully degrades performance. Tick “Show individual scans” to edit or re-tag a scan.
-          </caption>
           <thead>
             <tr>
               <th>Result</th>
@@ -104,11 +94,6 @@
           </tbody>
         </table>
       </div>
-      <p class="src-note">
-        Verdict is <b>not good</b> when the proxy worsens <b>latency</b>, <b>TTFB</b> or <b>throughput</b> by more
-        than that metric's own tolerance (Settings, default 30% each). TLS is shown but not judged — SSL inspection
-        inherently doubles the handshake. Absolute values include server distance, so the Δ is what matters.
-      </p>
     </section>
 
     <!-- ============ Optional live details (collapsed) ============ -->
