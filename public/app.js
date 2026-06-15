@@ -158,6 +158,7 @@ async function runDownload() {
   };
   state.download = result;
   renderDownload(result);
+  maybeUpdateConnFromTiming({ ttfb: result.ttfbMs }, true); // honest per-request TTFB
   log(`Download: ${fmt(mbps)} Mbit/s (TTFB ${fmt(ttfb)} ms)`);
   return result;
 }
@@ -206,20 +207,27 @@ function runUpload() {
   });
 }
 
-async function runConnInfo() {
+async function runConnInfo(updateConn = false) {
   log('Checking connection/proxy…');
   const res = await fetch(cacheBust('/api/headers'), { cache: 'no-store' });
   const data = await res.json();
   state.proxy = data;
   renderProxy(data);
-  const nav = performance.getEntriesByType('navigation')[0];
-  if (nav) {
-    maybeUpdateConnFromTiming({
-      dns: nav.domainLookupEnd - nav.domainLookupStart,
-      tcp: nav.connectEnd - nav.connectStart,
-      tls: nav.secureConnectionStart > 0 ? nav.connectEnd - nav.secureConnectionStart : 0,
-      ttfb: nav.responseStart - nav.requestStart,
-    }, true);
+  // Only fill the connection breakdown during an actual run — not on page load,
+  // where the navigation timing would otherwise show the page's own (cold-start)
+  // TTFB before any scan has started.
+  if (updateConn) {
+    const nav = performance.getEntriesByType('navigation')[0];
+    if (nav) {
+      // DNS/TCP/TLS from the page's cold connection (genuine setup, incl. the
+      // real handshake). TTFB is filled from the actual download test instead,
+      // so it reflects a measured request rather than the page's own load.
+      maybeUpdateConnFromTiming({
+        dns: nav.domainLookupEnd - nav.domainLookupStart,
+        tcp: nav.connectEnd - nav.connectStart,
+        tls: nav.secureConnectionStart > 0 ? nav.connectEnd - nav.secureConnectionStart : 0,
+      }, true);
+    }
   }
   return data;
 }
@@ -719,7 +727,7 @@ async function refreshSnapshots() {
 async function runAll() {
   setButtonsDisabled(true);
   try {
-    await runConnInfo();
+    await runConnInfo(true);
     await runLatency();
     await runDownload();
     await runUpload();
@@ -740,7 +748,7 @@ async function runSingle(test) {
     if (test === 'latency') await runLatency();
     else if (test === 'download') await runDownload();
     else if (test === 'upload') await runUpload();
-    else if (test === 'conn' || test === 'proxy') await runConnInfo();
+    else if (test === 'conn' || test === 'proxy') await runConnInfo(true);
   } catch (err) {
     log('Error: ' + (err && err.message ? err.message : err));
   } finally {

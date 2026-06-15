@@ -117,6 +117,8 @@ function rowToSnapshot(r) {
 // Disable caching everywhere, expose timing to the Resource Timing API, and
 // allow cross-origin use so the page can optionally be hosted elsewhere.
 app.use((req, res, next) => {
+  // Disable Nagle so the first byte is never held back — keeps TTFB honest.
+  if (req.socket && req.socket.setNoDelay) req.socket.setNoDelay(true);
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
   res.set('Pragma', 'no-cache');
   res.set('Expires', '0');
