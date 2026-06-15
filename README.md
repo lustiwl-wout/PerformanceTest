@@ -77,14 +77,15 @@ for local development.
 ## How to use it
 
 1. Open the site **through** your normal (Zscaler) connection.
-2. Tick **"Through the proxy"** (auto-detected, but you have the final say).
+2. Tick **"Through the proxy"** (auto-detected, but you have the final say) and pick a
+   **Group** number — related scans (e.g. one comparison session) share a group.
 3. Click **"Run all tests"** — the run is saved automatically as `Scan N`
-   (auto-incrementing), tagged with the proxy state. (Or **Save scan** manually.)
+   (auto-incrementing), tagged with the proxy state and group.
 4. Run again **without** the proxy (bypass / different network / hotspot) with the
    box unticked, so you also have some direct scans.
-5. Your direct (no-proxy) runs are combined into a **median baseline** row, and the
-   **Δ** on each with-proxy row shows the proxy's *added* cost. The **Proxy** column
-   (✓ / ✗) records which run was which.
+5. The table shows the **median of your direct scans** (the baseline) and the
+   **median of your with-proxy scans** at the top; the **Δ** is the proxy's *added*
+   cost. Click a **Proxy** cell (✓ / ✗) to re-tag a scan, ✎ to rename, ✕ to delete.
 
 > Absolute numbers include your distance to the server, so they don't reveal the
 > proxy on their own — **the difference vs. the direct baseline is the answer.**
@@ -95,7 +96,8 @@ for local development.
 The tool deliberately shows **raw differences**, not pass/fail verdicts. Absolute
 numbers are dominated by your distance to the server, so only the **Δ vs. the
 direct-median baseline** matters (the baseline is the median of all your
-direct/no-proxy scans):
+direct/no-proxy scans; a *With proxy* median row sits right under it for an
+at-a-glance aggregate Δ):
 
 - **Latency / TTFB / TLS** — the millisecond difference the proxy adds.
 - **Download / Upload** — the % change vs. the baseline.
@@ -117,7 +119,7 @@ handshake background (where SSL inspection adds cost): TLS 1.3 is 1 round trip v
 | `GET /api/headers` | Echoes received headers + IP chain (proxy detection). |
 | `GET /api/info` | Server info / health check (incl. `database` flag). |
 | `GET` / `POST /api/snapshots` | List / create snapshots (PostgreSQL). |
-| `PATCH` / `DELETE /api/snapshots/:id` | Rename / delete one snapshot. |
+| `PATCH` / `DELETE /api/snapshots/:id` | Update (label / proxied / group) or delete one scan. |
 | `DELETE /api/snapshots` | Clear all snapshots. |
 
 ## Tech

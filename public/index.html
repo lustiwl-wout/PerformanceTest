@@ -31,7 +31,10 @@
         <label class="proxied-toggle" title="Tick this if this run goes through the proxy (Zscaler). Auto-detected, but you decide.">
           <input type="checkbox" id="proxied" /> <span>Through the proxy</span>
         </label>
-        <button id="saveSnapshot" class="btn" disabled title="Saves the current run as the next “Scan N”">＋ Save scan</button>
+        <span class="group-control" title="Scans saved with the same group number are related to each other.">
+          <label>Group <input type="number" id="scanGroup" value="1" min="1" /></label>
+          <button id="newGroup" class="btn btn-sm" type="button">＋ New group</button>
+        </span>
         <div class="spacer"></div>
         <details class="settings">
           <summary>⚙ Settings</summary>
@@ -74,7 +77,7 @@
           <div><label>jitter</label><span id="lat-jit">–</span></div>
         </div>
         <canvas id="lat-spark" class="spark" width="600" height="80"></canvas>
-        <p class="hint">Absolute value includes your distance to the server — the proxy's share is the <b>Δ vs. a no-proxy run</b> below.</p>
+        <p class="hint">Absolute value includes your distance to the server — the proxy's share is the <b>Δ vs. the direct baseline</b> below.</p>
       </article>
 
       <!-- Download -->
@@ -154,24 +157,27 @@
     <!-- Snapshots / comparison -->
     <section class="panel">
       <div class="card-head">
-        <h2>📊 Compare snapshots <span id="storageBadge" class="storage-badge">–</span></h2>
+        <h2>📊 Compare scans <span id="storageBadge" class="storage-badge">–</span></h2>
         <button id="clearSnapshots" class="btn btn-sm btn-ghost">Clear</button>
       </div>
       <p class="hint">
-        Tick <b>Through the proxy</b> above when relevant, run the tests and <b>Save snapshot</b>.
-        Do the same from a no-proxy network, then it's all about the <b>difference</b> between them.
+        Tick <b>Through the proxy</b> when it applies, pick a <b>Group</b>, then <b>Run all tests</b> —
+        each run is saved automatically as <code>Scan N</code>. Do runs both with and without the proxy;
+        the comparison is the difference between them.
       </p>
       <div class="table-wrap">
         <table id="snapTable">
           <caption class="snap-caption">
-            Absolute values include the server's own latency &amp; your distance to it. The <b>baseline</b> is
-            the <b>median of all your direct (no-proxy) scans</b>; the <b>Δ</b> on each with-proxy row is its
-            impact — Latency/TTFB/TLS in ms, throughput as % change. Tag runs with the “Through the proxy” box.
+            The top rows show the <b>median of your direct scans</b> (the baseline) and the
+            <b>median of your with-proxy scans</b>; the <b>Δ</b> is the proxy's impact — Latency/TTFB/TLS in ms,
+            throughput as % change. Click a <b>Proxy</b> cell to re-tag a scan; relate scans with the
+            <b>Group</b> number. Absolute values include server distance, so the Δ is what matters.
           </caption>
           <thead>
             <tr>
               <th>Label</th>
-              <th>Proxy<span class="th-note">with / without</span></th>
+              <th>Group</th>
+              <th>Proxy<span class="th-note">click to change</span></th>
               <th>Time</th>
               <th>Latency (ms)<span class="th-note">Δ vs baseline</span></th><th>Jitter</th>
               <th>Download (Mbit/s)<span class="th-note">Δ % vs base</span></th>
@@ -182,7 +188,7 @@
             </tr>
           </thead>
           <tbody id="snapBody">
-            <tr class="empty"><td colspan="10">No snapshots saved yet.</td></tr>
+            <tr class="empty"><td colspan="11">No scans saved yet.</td></tr>
           </tbody>
         </table>
       </div>

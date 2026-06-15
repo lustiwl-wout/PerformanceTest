@@ -368,7 +368,7 @@ function renderSummary() {
     if (hdrs.length) add('warn', `Proxy headers present: ${hdrs.join(', ')}.`);
   }
 
-  add('good', 'To measure the proxy: tag each run with the “Through the proxy” box and save it. Your direct runs are combined into a median baseline, and the Δ on each with-proxy row is its impact.');
+  add('good', 'To measure the proxy: tag each run with the “Through the proxy” box and run the tests — it saves automatically. Direct runs form a median baseline; the With-proxy median row and each with-proxy row show the Δ (proxy impact).');
 
   for (const it of items) {
     const li = document.createElement('li');
@@ -396,15 +396,12 @@ function median(vals) {
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
 }
 
-// The baseline is the MEDIAN of all direct (no-proxy) scans — i.e. every
-// snapshot whose "Through the proxy" box was unticked. Each with-proxy row is
-// then compared against this median baseline.
-function computeDirectBaseline(list) {
-  const directs = list.filter((s) => s.proxied === false);
-  if (!directs.length) return null;
-  const med = (get) => median(directs.map(get));
+// Median per metric over a set of scans.
+function medianOf(scans) {
+  if (!scans.length) return null;
+  const med = (get) => median(scans.map(get));
   return {
-    n: directs.length,
+    n: scans.length,
     latency: { median: med((s) => s.latency && s.latency.median), jitter: med((s) => s.latency && s.latency.jitter) },
     download: med((s) => s.download),
     upload: med((s) => s.upload),
@@ -428,11 +425,11 @@ async function createSnapshotRecord(snap) {
   return res.json();
 }
 
-async function renameSnapshotRecord(id, label) {
+async function updateSnapshot(id, fields) {
   const res = await fetch('/api/snapshots/' + id, {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ label }),
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fields),
   });
-  if (!res.ok) throw new Error('rename ' + res.status);
+  if (!res.ok) throw new Error('update ' + res.status);
 }
 
 async function deleteSnapshotRecord(id) {
@@ -445,10 +442,17 @@ async function clearSnapshotRecords() {
   if (!res.ok && res.status !== 204) throw new Error('clear ' + res.status);
 }
 
+const GROUP_KEY = 'pptester.group.v1'; // current scan-group number (relates scans)
+function currentGroup() {
+  const v = parseInt($('scanGroup').value, 10);
+  return Number.isFinite(v) && v > 0 ? v : 1;
+}
+
 function currentSnapshot(label) {
   return {
     label,
     proxied: $('proxied').checked,
+    group: currentGroup(),
     latency: state.latency ? { median: state.latency.median, jitter: state.latency.jitter } : null,
     download: state.download ? state.download.mbps : null,
     upload: state.upload ? state.upload.mbps : null,
@@ -511,50 +515,60 @@ function appendMetricCell(tr, value, baseValue, unit) {
   tr.appendChild(td);
 }
 
-function appendProxyCell(tr, proxied) {
-  const td = document.createElement('td');
-  if (proxied === true) { td.innerHTML = '<span class="px-yes">✓ proxy</span>'; }
-  else if (proxied === false) { td.innerHTML = '<span class="px-no">✗ direct</span>'; }
-  else { td.textContent = '–'; }
-  tr.appendChild(td);
-}
-
-// Synthetic, highlighted row showing the median-of-direct-scans baseline.
-function baselineRow(b) {
+// A synthetic, highlighted median row (Direct baseline or With proxy).
+// `baseline` (when given) makes it show the Δ vs that baseline.
+function medianRow(m, label, pxText, pxClass, baseline) {
+  const cmp = baseline || null;
   const tr = document.createElement('tr');
-  tr.className = 'baseline-row';
+  tr.className = 'median-row';
 
   const tdLabel = document.createElement('td');
-  tdLabel.textContent = 'Direct baseline';
+  tdLabel.textContent = label;
   const tag = document.createElement('span');
   tag.className = 'baseline-tag';
-  tag.textContent = 'median of ' + b.n;
+  tag.textContent = 'median of ' + m.n;
   tdLabel.appendChild(tag);
   tr.appendChild(tdLabel);
 
+  appendCell(tr, '—');                                   // group
   const tdPx = document.createElement('td');
-  tdPx.innerHTML = '<span class="px-no">median</span>';
-  tr.appendChild(tdPx);
+  tdPx.innerHTML = `<span class="${pxClass}">${pxText}</span>`;
+  tr.appendChild(tdPx);                                  // proxy
+  appendCell(tr, '—');                                   // time
 
-  appendCell(tr, '—');
-  appendMetricCell(tr, b.latency.median, null, 'ms');
-  appendCell(tr, b.latency.jitter != null ? fmt(b.latency.jitter) : '–');
-  appendMetricCell(tr, b.download, null, 'pct');
-  appendMetricCell(tr, b.upload, null, 'pct');
-  appendMetricCell(tr, b.ttfb, null, 'ms');
-  appendMetricCell(tr, b.tls, null, 'ms');
-  appendCell(tr, '');
+  appendMetricCell(tr, m.latency.median, cmp ? cmp.latency.median : null, 'ms');
+  appendCell(tr, m.latency.jitter != null ? fmt(m.latency.jitter) : '–');
+  appendMetricCell(tr, m.download, cmp ? cmp.download : null, 'pct');
+  appendMetricCell(tr, m.upload, cmp ? cmp.upload : null, 'pct');
+  appendMetricCell(tr, m.ttfb, cmp ? cmp.ttfb : null, 'ms');
+  appendMetricCell(tr, m.tls, cmp ? cmp.tls : null, 'ms');
+  appendCell(tr, '');                                    // actions
   return tr;
 }
 
 function snapshotRow(s, baseline) {
-  // The Δ (proxy impact) is shown on with-proxy rows, vs the direct-median baseline.
+  // Δ (proxy impact) is shown on with-proxy rows, vs the direct-median baseline.
   const cmp = (baseline && s.proxied === true) ? baseline : null;
   const id = snapId(s);
   const tr = document.createElement('tr');
 
   appendCell(tr, s.label);
-  appendProxyCell(tr, s.proxied);
+  appendCell(tr, s.group != null ? String(s.group) : '–');
+
+  // Proxy cell — click to switch with-proxy / direct.
+  const tdPx = document.createElement('td');
+  const pxBtn = document.createElement('button');
+  pxBtn.className = 'px-toggle ' + (s.proxied === true ? 'px-yes' : s.proxied === false ? 'px-no' : 'px-unknown');
+  pxBtn.textContent = s.proxied === true ? '✓ proxy' : s.proxied === false ? '✗ direct' : '– set';
+  pxBtn.title = 'Click to change: with proxy / direct';
+  pxBtn.onclick = async () => {
+    const next = s.proxied === true ? false : true; // direct/unknown -> proxy -> direct …
+    try { await updateSnapshot(id, { proxied: next }); await refreshSnapshots(); }
+    catch (err) { log('Update failed: ' + err.message); }
+  };
+  tdPx.appendChild(pxBtn);
+  tr.appendChild(tdPx);
+
   appendCell(tr, new Date(s.ts).toLocaleString());
   appendMetricCell(tr, s.latency ? s.latency.median : null, cmp && cmp.latency ? cmp.latency.median : null, 'ms');
   appendCell(tr, s.latency ? fmt(s.latency.jitter) : '–');
@@ -569,11 +583,11 @@ function snapshotRow(s, baseline) {
   const editBtn = document.createElement('button');
   editBtn.className = 'snap-edit'; editBtn.textContent = '✎'; editBtn.title = 'Rename';
   editBtn.onclick = async () => {
-    const name = prompt('New label for this snapshot:', s.label);
+    const name = prompt('New label for this scan:', s.label);
     if (name == null) return;
     const trimmed = name.trim();
     if (!trimmed) return;
-    try { await renameSnapshotRecord(id, trimmed); await refreshSnapshots(); log('Snapshot renamed to: ' + trimmed); }
+    try { await updateSnapshot(id, { label: trimmed }); await refreshSnapshots(); log('Renamed to: ' + trimmed); }
     catch (err) { log('Rename failed: ' + err.message); }
   };
 
@@ -594,25 +608,31 @@ function renderSnapshotList(list) {
   const body = $('snapBody');
   body.innerHTML = '';
   if (!dbAvailable()) {
-    body.innerHTML = '<tr class="empty"><td colspan="10">No database connected — set DATABASE_URL to save and compare snapshots.</td></tr>';
+    body.innerHTML = '<tr class="empty"><td colspan="11">No database connected — set DATABASE_URL to save and compare scans.</td></tr>';
     return;
   }
   if (!list.length) {
-    body.innerHTML = '<tr class="empty"><td colspan="10">No snapshots saved yet.</td></tr>';
+    body.innerHTML = '<tr class="empty"><td colspan="11">No scans saved yet.</td></tr>';
     return;
   }
 
-  const baseline = computeDirectBaseline(list);
-  if (baseline) {
-    body.appendChild(baselineRow(baseline));
+  // Baseline = median of direct scans; the with-proxy median sits right under it.
+  const direct = medianOf(list.filter((s) => s.proxied === false));
+  const proxy = medianOf(list.filter((s) => s.proxied === true));
+
+  if (direct) {
+    body.appendChild(medianRow(direct, 'Direct baseline', 'direct', 'px-no', null));
   } else {
     const tr = document.createElement('tr');
     tr.className = 'empty';
-    tr.innerHTML = '<td colspan="10">No direct (no-proxy) scans yet — untick “Through the proxy”, run and save one to form the baseline.</td>';
+    tr.innerHTML = '<td colspan="11">No direct (no-proxy) scans yet — untick “Through the proxy” and run the tests to form the baseline.</td>';
     body.appendChild(tr);
   }
+  if (proxy) {
+    body.appendChild(medianRow(proxy, 'With proxy', 'proxy', 'px-yes', direct));
+  }
 
-  list.forEach((s) => body.appendChild(snapshotRow(s, baseline)));
+  list.forEach((s) => body.appendChild(snapshotRow(s, direct)));
 }
 
 async function refreshSnapshots() {
@@ -634,7 +654,6 @@ async function runAll() {
     await runDownload();
     await runUpload();
     renderSummary();
-    $('saveSnapshot').disabled = !dbAvailable();
     if (dbAvailable()) await saveScan();
     log('All tests done.');
   } catch (err) {
@@ -652,7 +671,6 @@ async function runSingle(test) {
     else if (test === 'download') await runDownload();
     else if (test === 'upload') await runUpload();
     else if (test === 'conn' || test === 'proxy') await runConnInfo();
-    $('saveSnapshot').disabled = !dbAvailable();
   } catch (err) {
     log('Error: ' + (err && err.message ? err.message : err));
   } finally {
@@ -691,10 +709,22 @@ async function init() {
   document.querySelectorAll('button[data-test]').forEach((b) => {
     b.onclick = () => runSingle(b.dataset.test);
   });
-  $('saveSnapshot').onclick = saveScan;
+  // Scan-group control (related scans share a number).
+  const savedGroup = parseInt(localStorage.getItem(GROUP_KEY), 10);
+  if (Number.isFinite(savedGroup) && savedGroup > 0) $('scanGroup').value = savedGroup;
+  $('scanGroup').onchange = () => localStorage.setItem(GROUP_KEY, String(currentGroup()));
+  $('newGroup').onclick = () => {
+    let max = 0;
+    for (const s of snapshotsCache) if (Number.isFinite(s.group)) max = Math.max(max, s.group);
+    const next = Math.max(max, currentGroup()) + 1;
+    $('scanGroup').value = next;
+    localStorage.setItem(GROUP_KEY, String(next));
+    log('New scan group: ' + next);
+  };
+
   $('clearSnapshots').onclick = async () => {
     if (!dbAvailable()) return;
-    if (!confirm('Delete all snapshots?')) return;
+    if (!confirm('Delete all scans?')) return;
     try { await clearSnapshotRecords(); await refreshSnapshots(); }
     catch (err) { log('Clear failed: ' + err.message); }
   };

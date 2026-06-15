@@ -185,11 +185,22 @@ tr.empty td { text-align: center; color: var(--muted); font-family: inherit; }
 .proxied-toggle input { accent-color: var(--accent); cursor: pointer; width: 15px; height: 15px; }
 .px-yes { color: var(--accent); font-weight: 600; }
 .px-no  { color: var(--muted); }
+.px-unknown { color: var(--warn); }
+.px-toggle { background: transparent; border: 1px solid transparent; border-radius: 6px;
+  padding: 1px 6px; cursor: pointer; font: inherit; font-size: 12px; }
+.px-toggle:hover { border-color: var(--accent); background: var(--panel-2); }
+
+.group-control { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.group-control label { display: inline-flex; align-items: center; gap: 6px; }
+.group-control input { width: 56px; background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 8px; font-family: var(--mono); }
 
 .storage-badge { font-size: 11px; font-weight: 500; color: var(--muted); background: var(--panel-2);
   border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; margin-left: 8px; vertical-align: middle; }
 
-tr.baseline-row { background: rgba(79,157,255,.08); }
+tr.median-row { background: rgba(79,157,255,.10); }
+tr.median-row td { font-weight: 600; }
+tr.median-row + tr:not(.median-row) td { border-top: 2px solid var(--border); }
 .baseline-tag {
   display: inline-block; font-size: 10px; text-transform: uppercase; letter-spacing: .04em;
   color: var(--accent); border: 1px solid var(--accent); border-radius: 4px;

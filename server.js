@@ -67,6 +67,7 @@ async function initDb() {
         id BIGSERIAL PRIMARY KEY,
         label TEXT NOT NULL,
         proxied BOOLEAN,
+        scan_group INTEGER DEFAULT 1,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         latency_median DOUBLE PRECISION,
         latency_jitter DOUBLE PRECISION,
@@ -78,6 +79,8 @@ async function initDb() {
         user_agent TEXT
       );
     `);
+    // Add columns that may be missing on a pre-existing table.
+    await pool.query('ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS scan_group INTEGER DEFAULT 1');
     // One-time wipe: set RESET_DB=true to empty the table on startup, then
     // remove the variable again (while set, it wipes on every restart).
     if (process.env.RESET_DB === 'true') {
@@ -99,6 +102,7 @@ function rowToSnapshot(r) {
     id: Number(r.id),
     label: r.label,
     proxied: r.proxied,
+    group: r.scan_group != null ? Number(r.scan_group) : null,
     ts: new Date(r.created_at).getTime(),
     latency: (r.latency_median != null || r.latency_jitter != null)
       ? { median: r.latency_median, jitter: r.latency_jitter }
@@ -228,12 +232,13 @@ app.post('/api/snapshots', requireDb, express.json({ limit: '64kb' }), async (re
   try {
     const { rows } = await pool.query(
       `INSERT INTO snapshots
-        (label, proxied, latency_median, latency_jitter, download_mbps, upload_mbps, ttfb_ms, tls_ms, client_ip, user_agent)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+        (label, proxied, scan_group, latency_median, latency_jitter, download_mbps, upload_mbps, ttfb_ms, tls_ms, client_ip, user_agent)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        RETURNING *`,
       [
         String(b.label || 'snapshot').slice(0, 200),
         typeof b.proxied === 'boolean' ? b.proxied : null,
+        Number.isFinite(b.group) ? Math.trunc(b.group) : 1,
         num(b.latency && b.latency.median), num(b.latency && b.latency.jitter),
         num(b.download), num(b.upload), num(b.ttfb), num(b.tls),
         req.ip, String(req.headers['user-agent'] || '').slice(0, 300),
@@ -247,12 +252,19 @@ app.post('/api/snapshots', requireDb, express.json({ limit: '64kb' }), async (re
 
 app.patch('/api/snapshots/:id', requireDb, express.json({ limit: '8kb' }), async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const label = req.body && req.body.label;
-  if (!Number.isFinite(id) || !label) return res.status(400).json({ error: 'bad request' });
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
+  const b = req.body || {};
+  const sets = [];
+  const vals = [];
+  if (typeof b.label === 'string' && b.label.trim()) { vals.push(b.label.slice(0, 200)); sets.push(`label=$${vals.length}`); }
+  if (typeof b.proxied === 'boolean' || b.proxied === null) { vals.push(b.proxied); sets.push(`proxied=$${vals.length}`); }
+  if (Number.isFinite(b.group)) { vals.push(Math.trunc(b.group)); sets.push(`scan_group=$${vals.length}`); }
+  if (!sets.length) return res.status(400).json({ error: 'nothing to update' });
+  vals.push(id);
   try {
     const { rows } = await pool.query(
-      'UPDATE snapshots SET label=$1 WHERE id=$2 RETURNING *',
-      [String(label).slice(0, 200), id]
+      `UPDATE snapshots SET ${sets.join(', ')} WHERE id=$${vals.length} RETURNING *`,
+      vals
     );
     if (!rows.length) return res.status(404).json({ error: 'not found' });
     res.json(rowToSnapshot(rows[0]));
