@@ -50,13 +50,13 @@ a cold start of a few seconds — that is *not* proxy latency. Open the page, wa
 until the status badge shows "connected", and only then run the test (the latency
 test discards its first measurement anyway).
 
-## Data storage (optional PostgreSQL)
+## Data storage (PostgreSQL)
 
-Snapshots are saved to a **PostgreSQL** database when a `DATABASE_URL` is set (the
-app was built against [Neon](https://neon.tech)); otherwise they fall back to the
-browser's `localStorage`. The server creates its `snapshots` table automatically
-on first start, and the header badge shows where data is stored (🗄 Database /
-💾 This browser).
+Snapshots are stored in a **PostgreSQL** database (the app was built against
+[Neon](https://neon.tech)) — the database is the single source of truth. The server
+creates its `snapshots` table automatically on first start, and the header badge
+shows the status (🗄 Database / ⚠ No database). Without a `DATABASE_URL` the tests
+still run, but snapshots can't be saved or compared.
 
 Set the connection string as an environment variable — **never commit it**:
 
@@ -68,8 +68,7 @@ npm start
 On Render, `render.yaml` declares `DATABASE_URL` with `sync: false`, so you paste
 the value in the dashboard (Environment) rather than storing it in the repo. TLS is
 enabled automatically for non-local hosts; a `localhost` URL connects without TLS
-for local development. The first time the app reaches an empty database, any
-snapshots already in your browser are migrated into it once.
+for local development.
 
 ## How to use it
 
@@ -79,28 +78,26 @@ snapshots already in your browser are migrated into it once.
 4. Run the test again **without** the proxy (bypass / different network / hotspot),
    untick the box, and save it as `Direct`.
 5. In the **snapshots** table, mark the no-proxy run as the ◎ **baseline**. The
-   coloured **Δ** on Latency / TTFB / TLS is then the proxy's *added* cost, and the
+   **Δ** on Latency / TTFB / TLS is then the proxy's *added* cost, and the
    **Proxy** column (✓ / ✗) records which run was which.
 
 > Absolute numbers include your distance to the server, so they don't reveal the
 > proxy on their own — **the difference between the two runs is the answer.**
 > Rename a snapshot with ✎, set the ◎ baseline, or remove it with ✕.
 
-## Thresholds & sources
+## Reading the comparison
 
-The tool deliberately does **not** colour-judge absolute numbers — they are
-dominated by your distance to the server, not the proxy. Only the **Δ vs. the
-baseline** is graded:
+The tool deliberately shows **raw differences**, not pass/fail verdicts. Absolute
+numbers are dominated by your distance to the server, so only the **Δ vs. the ◎
+baseline** matters:
 
-| Graded value | Threshold | Source |
-|--------------|-----------|--------|
-| **Proxy overhead** = Δ latency / TTFB / TLS vs. the ◎ baseline | ≤ 100 ms green / > 100 ms red | [Zscaler ZIA Latency Agreement](https://www.zscaler.com/legal/sla-support) — Zscaler commits to *"100 milliseconds or less for the 95th percentile"* of proxy **processing** (proxy-ingress → proxy-egress; it does **not** cover the network detour to the Zscaler node). |
-| **Throughput** = Δ download / upload vs. baseline | shown as % change (no verdict) | relative comparison |
+- **Latency / TTFB / TLS** — the millisecond difference the proxy adds.
+- **Download / Upload** — the % change vs. the baseline.
 
-For context, [web.dev](https://web.dev/articles/ttfb) calls an absolute TTFB of
-≤ 800 ms "good" / > 1800 ms "poor" — but that targets full-page navigation and
-reflects the whole server, so it is *not* used to judge the proxy here. TLS
-handshake background: TLS 1.3 is 1 round trip vs. 2 for TLS 1.2
+What counts as "too much" depends on your own link and expectations, so judge it
+from the size of the difference between the with-proxy and no-proxy runs. TLS
+handshake background (where SSL inspection adds cost): TLS 1.3 is 1 round trip vs.
+2 for TLS 1.2
 ([ThousandEyes](https://www.thousandeyes.com/blog/optimizing-web-performance-tls-1-3),
 [Cloudflare](https://blog.cloudflare.com/introducing-0-rtt/)).
 
@@ -121,8 +118,8 @@ handshake background: TLS 1.3 is 1 round trip vs. 2 for TLS 1.2
 
 - Node.js + Express, no build step, vanilla JS frontend (stays lightweight so the
   app itself doesn't skew the measurements).
-- Optional PostgreSQL persistence via `pg` (Neon-compatible), with a localStorage
-  fallback when no `DATABASE_URL` is set.
+- PostgreSQL persistence via `pg` (Neon-compatible); the tests run without a
+  database, but snapshots require one.
 - Random/incompressible payloads so compression doesn't affect throughput.
 - No caching on any endpoint; `Timing-Allow-Origin` for the Resource Timing API
   (DNS/TCP/TLS breakdown).

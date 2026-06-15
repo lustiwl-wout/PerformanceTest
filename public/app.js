@@ -6,8 +6,8 @@
  * around the DIFFERENCE between a run made *through* a proxy (Zscaler) and a
  * direct run. That delta is what isolates the proxy's cost.
  *
- * Snapshots persist to PostgreSQL when the server has DATABASE_URL configured,
- * otherwise to this browser's localStorage.
+ * Snapshots live in PostgreSQL (the server needs DATABASE_URL). Without a
+ * database, the tests still run but snapshots can't be saved or compared.
  * ========================================================== */
 
 const $ = (id) => document.getElementById(id);
@@ -51,18 +51,6 @@ function setProgress(label, frac) {
 
 function setButtonsDisabled(disabled) {
   document.querySelectorAll('button[data-test], #runAll').forEach((b) => { b.disabled = disabled; });
-}
-
-/* ---------- sourced threshold for proxy overhead ----------
- * The proxy's *added* latency (delta vs a direct baseline) is graded against
- * Zscaler's own ZIA Latency SLA: <=100ms at the 95th percentile for proxy
- * processing.  https://www.zscaler.com/legal/sla-support
- * (Absolute values are deliberately NOT graded — they reflect server distance,
- * not the proxy.)
- */
-function gradeOverhead(deltaMs) {
-  if (deltaMs == null || !isFinite(deltaMs)) return '';
-  return deltaMs <= 100 ? 'grade-good' : 'grade-poor';
 }
 
 /* ---------- statistics ---------- */
@@ -380,7 +368,7 @@ function renderSummary() {
     if (hdrs.length) add('warn', `Proxy headers present: ${hdrs.join(', ')}.`);
   }
 
-  add('good', 'To measure the proxy: save this run, run again WITHOUT the proxy, mark the no-proxy run as ◎ baseline. The coloured Δ in the table is the proxy\'s impact (≤100 ms p95 = within Zscaler\'s SLA).');
+  add('good', 'To measure the proxy: save this run, run again WITHOUT the proxy, mark the no-proxy run as ◎ baseline. The Δ in the table is then the proxy\'s impact.');
 
   for (const it of items) {
     const li = document.createElement('li');
@@ -392,20 +380,16 @@ function renderSummary() {
 }
 
 /* ============================================================
- * Snapshot storage — PostgreSQL when available, else localStorage
+ * Snapshot storage — PostgreSQL only (the database is the source of truth)
  * ========================================================== */
 
-const SNAP_KEY = 'pptester.snapshots.v1';
-const BASE_KEY = 'pptester.baselineId.v1';
-const MIGRATED_KEY = 'pptester.migrated.v1';
+const BASE_KEY = 'pptester.baselineId.v1'; // which snapshot id is the baseline (UI preference)
 
-let storageMode = 'local';   // resolved in init()
+let storageMode = 'none';   // 'db' | 'none' (resolved in init())
 let snapshotsCache = [];
 
-function snapId(s) { return s.id != null ? s.id : s.ts; }
-
-function loadLocal() { try { return JSON.parse(localStorage.getItem(SNAP_KEY)) || []; } catch (_) { return []; } }
-function saveLocal(list) { localStorage.setItem(SNAP_KEY, JSON.stringify(list)); }
+function dbAvailable() { return storageMode === 'db'; }
+function snapId(s) { return s.id; }
 
 function getBaselineId() { return localStorage.getItem(BASE_KEY); }
 function setBaselineId(id) {
@@ -413,67 +397,41 @@ function setBaselineId(id) {
   else localStorage.setItem(BASE_KEY, String(id));
 }
 
-async function apiFetchSnapshots() {
+async function listSnapshots() {
+  if (!dbAvailable()) return [];
   const res = await fetch('/api/snapshots', { cache: 'no-store' });
   if (!res.ok) throw new Error('list ' + res.status);
   return res.json();
 }
 
-async function listSnapshots() {
-  if (storageMode === 'db') return apiFetchSnapshots();
-  return loadLocal().map((s) => ({ ...s, id: s.id != null ? s.id : s.ts }));
-}
-
 async function createSnapshotRecord(snap) {
-  if (storageMode === 'db') {
-    const res = await fetch('/api/snapshots', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(snap),
-    });
-    if (!res.ok) throw new Error('create ' + res.status);
-    return res.json();
-  }
-  const list = loadLocal();
-  snap.id = snap.ts;
-  list.push(snap);
-  saveLocal(list);
-  return snap;
+  const res = await fetch('/api/snapshots', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(snap),
+  });
+  if (!res.ok) throw new Error('create ' + res.status);
+  return res.json();
 }
 
 async function renameSnapshotRecord(id, label) {
-  if (storageMode === 'db') {
-    const res = await fetch('/api/snapshots/' + id, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ label }),
-    });
-    if (!res.ok) throw new Error('rename ' + res.status);
-    return;
-  }
-  const list = loadLocal();
-  const it = list.find((s) => String(snapId(s)) === String(id));
-  if (it) { it.label = label; saveLocal(list); }
+  const res = await fetch('/api/snapshots/' + id, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ label }),
+  });
+  if (!res.ok) throw new Error('rename ' + res.status);
 }
 
 async function deleteSnapshotRecord(id) {
-  if (storageMode === 'db') {
-    const res = await fetch('/api/snapshots/' + id, { method: 'DELETE' });
-    if (!res.ok && res.status !== 204) throw new Error('delete ' + res.status);
-    return;
-  }
-  saveLocal(loadLocal().filter((s) => String(snapId(s)) !== String(id)));
+  const res = await fetch('/api/snapshots/' + id, { method: 'DELETE' });
+  if (!res.ok && res.status !== 204) throw new Error('delete ' + res.status);
 }
 
 async function clearSnapshotRecords() {
-  if (storageMode === 'db') {
-    const res = await fetch('/api/snapshots', { method: 'DELETE' });
-    if (!res.ok && res.status !== 204) throw new Error('clear ' + res.status);
-    return;
-  }
-  saveLocal([]);
+  const res = await fetch('/api/snapshots', { method: 'DELETE' });
+  if (!res.ok && res.status !== 204) throw new Error('clear ' + res.status);
 }
 
 function currentSnapshot(label) {
   return {
     label,
-    ts: Date.now(),
     proxied: $('proxied').checked,
     latency: state.latency ? { median: state.latency.median, jitter: state.latency.jitter } : null,
     download: state.download ? state.download.mbps : null,
@@ -481,29 +439,6 @@ function currentSnapshot(label) {
     ttfb: state.download ? state.download.ttfbMs : null,
     tls: state.conn ? state.conn.tls : null,
   };
-}
-
-// One-time copy of any existing localStorage snapshots into a fresh DB.
-async function maybeMigrate() {
-  if (storageMode !== 'db') return;
-  if (localStorage.getItem(MIGRATED_KEY)) return;
-  let dbList = [];
-  try { dbList = await apiFetchSnapshots(); } catch (_) { return; }
-  const local = loadLocal();
-  if (dbList.length === 0 && local.length > 0) {
-    let n = 0;
-    for (const s of local) {
-      try {
-        await createSnapshotRecord({
-          label: s.label, proxied: s.proxied, latency: s.latency,
-          download: s.download, upload: s.upload, ttfb: s.ttfb, tls: s.tls,
-        });
-        n++;
-      } catch (_) { /* ignore individual failures */ }
-    }
-    if (n) log(`Migrated ${n} local snapshot(s) to the database.`);
-  }
-  localStorage.setItem(MIGRATED_KEY, '1');
 }
 
 /* ---------- rendering the snapshot table ---------- */
@@ -514,9 +449,9 @@ function appendCell(tr, text) {
   tr.appendChild(td);
 }
 
-// Value cell that, when a baseline is set, shows the delta vs baseline.
-//   unit 'ms'  -> latency-type; delta graded against Zscaler 100 ms p95 SLA.
-//   unit 'pct' -> throughput; delta shown as % change (no SLA verdict).
+// Value cell that, when a baseline is set, shows the raw difference vs baseline.
+//   unit 'ms'  -> latency-type difference in milliseconds.
+//   unit 'pct' -> throughput difference as a percentage.
 function appendMetricCell(tr, value, baseValue, unit) {
   const td = document.createElement('td');
   const span = document.createElement('span');
@@ -525,19 +460,15 @@ function appendMetricCell(tr, value, baseValue, unit) {
 
   if (value != null && baseValue != null) {
     const d = document.createElement('span');
+    d.className = 'delta delta-muted';
     if (unit === 'pct') {
       const pct = baseValue ? (value / baseValue - 1) * 100 : 0;
-      const sign = pct >= 0 ? '+' : '−';
-      d.className = 'delta delta-muted';
-      d.textContent = ` Δ${sign}${fmt(Math.abs(pct))}%`;
-      d.title = 'Change vs baseline';
+      d.textContent = ` Δ${pct >= 0 ? '+' : '−'}${fmt(Math.abs(pct))}%`;
     } else {
       const delta = value - baseValue;
-      const sign = delta >= 0 ? '+' : '−';
-      d.className = 'delta ' + gradeOverhead(delta);
-      d.textContent = ` Δ${sign}${fmt(Math.abs(delta))}`;
-      d.title = 'Added vs baseline — graded against Zscaler ≤100 ms p95 SLA';
+      d.textContent = ` Δ${delta >= 0 ? '+' : '−'}${fmt(Math.abs(delta))}`;
     }
+    d.title = 'Difference vs baseline';
     td.appendChild(d);
   }
   tr.appendChild(td);
@@ -554,6 +485,10 @@ function appendProxyCell(tr, proxied) {
 function renderSnapshotList(list) {
   const body = $('snapBody');
   body.innerHTML = '';
+  if (!dbAvailable()) {
+    body.innerHTML = '<tr class="empty"><td colspan="10">No database connected — set DATABASE_URL to save and compare snapshots.</td></tr>';
+    return;
+  }
   if (!list.length) {
     body.innerHTML = '<tr class="empty"><td colspan="10">No snapshots saved yet.</td></tr>';
     return;
@@ -629,6 +564,7 @@ function renderSnapshotList(list) {
 }
 
 async function refreshSnapshots() {
+  if (!dbAvailable()) { snapshotsCache = []; renderSnapshotList(snapshotsCache); return; }
   try { snapshotsCache = await listSnapshots(); }
   catch (err) { log('Could not load snapshots: ' + err.message); snapshotsCache = []; }
   renderSnapshotList(snapshotsCache);
@@ -646,7 +582,7 @@ async function runAll() {
     await runDownload();
     await runUpload();
     renderSummary();
-    $('saveSnapshot').disabled = false;
+    $('saveSnapshot').disabled = !dbAvailable();
     log('All tests done.');
   } catch (err) {
     log('Error: ' + (err && err.message ? err.message : err));
@@ -663,7 +599,7 @@ async function runSingle(test) {
     else if (test === 'download') await runDownload();
     else if (test === 'upload') await runUpload();
     else if (test === 'conn' || test === 'proxy') await runConnInfo();
-    $('saveSnapshot').disabled = false;
+    $('saveSnapshot').disabled = !dbAvailable();
   } catch (err) {
     log('Error: ' + (err && err.message ? err.message : err));
   } finally {
@@ -675,22 +611,22 @@ async function runSingle(test) {
 function setStorageBadge() {
   const el = $('storageBadge');
   if (!el) return;
-  if (storageMode === 'db') { el.textContent = '🗄 Database'; el.title = 'Snapshots are stored in PostgreSQL (shared)'; }
-  else { el.textContent = '💾 This browser'; el.title = 'No database configured — snapshots stored in localStorage'; }
+  if (dbAvailable()) { el.textContent = '🗄 Database'; el.title = 'Snapshots are stored in PostgreSQL'; }
+  else { el.textContent = '⚠ No database'; el.title = 'Set DATABASE_URL to save and compare snapshots'; }
 }
 
 async function init() {
-  // Server info -> also tells us whether the database is available.
+  // Server info -> tells us whether the database is available.
   try {
     const res = await fetch(cacheBust('/api/info'), { cache: 'no-store' });
     const info = await res.json();
-    storageMode = info && info.database ? 'db' : 'local';
+    storageMode = info && info.database ? 'db' : 'none';
     $('connDot').className = 'dot ok';
     $('connText').textContent = 'connected';
     $('serverInfo').textContent = `${info.nodeVersion} · region ${info.region || '?'} · uptime ${info.uptimeSec}s · db ${info.database ? 'on' : 'off'}`;
-    log(`Connected to server (storage: ${storageMode === 'db' ? 'database' : 'localStorage'}).`);
+    log(`Connected to server (database: ${dbAvailable() ? 'on' : 'off'}).`);
   } catch (_) {
-    storageMode = 'local';
+    storageMode = 'none';
     $('connDot').className = 'dot err';
     $('connText').textContent = 'no connection';
     log('Could not reach server.');
@@ -703,6 +639,7 @@ async function init() {
     b.onclick = () => runSingle(b.dataset.test);
   });
   $('saveSnapshot').onclick = async () => {
+    if (!dbAvailable()) { log('No database connected — cannot save snapshots.'); return; }
     const proxied = $('proxied').checked;
     const label = prompt('Label for this snapshot:', proxied ? 'With proxy' : 'Direct');
     if (!label) return;
@@ -713,6 +650,7 @@ async function init() {
     } catch (err) { log('Save failed: ' + err.message); }
   };
   $('clearSnapshots').onclick = async () => {
+    if (!dbAvailable()) return;
     if (!confirm('Delete all snapshots?')) return;
     try { await clearSnapshotRecords(); setBaselineId(null); await refreshSnapshots(); }
     catch (err) { log('Clear failed: ' + err.message); }
@@ -720,7 +658,6 @@ async function init() {
 
   // Initial proxy/connection read so the dashboard isn't empty.
   runConnInfo().catch(() => {});
-  await maybeMigrate();
   await refreshSnapshots();
 }
 

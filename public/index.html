@@ -165,22 +165,19 @@
         <table id="snapTable">
           <caption class="snap-caption">
             Absolute values include the server's own latency &amp; your distance to it — so they don't reveal
-            the proxy on their own. Set a ◎ <b>baseline</b> (a no-proxy run); the coloured <b>Δ</b> is the
-            proxy's impact — Latency/TTFB/TLS graded <span class="grade-good">green ≤100 ms</span> /
-            <span class="grade-poor">red &gt;100 ms</span> against Zscaler's
-            <a href="https://www.zscaler.com/legal/sla-support" target="_blank" rel="noopener">≤100 ms p95 ZIA Latency SLA</a>;
-            throughput shown as % change.
+            the proxy on their own. Set a ◎ <b>baseline</b> (a no-proxy run); the <b>Δ</b> next to each value
+            is the proxy's impact — Latency/TTFB/TLS in ms, throughput as % change.
           </caption>
           <thead>
             <tr>
               <th>Label</th>
               <th>Proxy<span class="th-note">with / without</span></th>
               <th>Time</th>
-              <th>Latency (ms)<span class="th-note">Δ vs ≤100 ms SLA</span></th><th>Jitter</th>
+              <th>Latency (ms)<span class="th-note">Δ vs baseline</span></th><th>Jitter</th>
               <th>Download (Mbit/s)<span class="th-note">Δ % vs base</span></th>
               <th>Upload (Mbit/s)<span class="th-note">Δ % vs base</span></th>
-              <th>TTFB<span class="th-note">Δ vs ≤100 ms SLA</span></th>
-              <th>TLS<span class="th-note">Δ vs ≤100 ms SLA</span></th>
+              <th>TTFB<span class="th-note">Δ vs baseline</span></th>
+              <th>TLS<span class="th-note">Δ vs baseline</span></th>
               <th></th>
             </tr>
           </thead>
