@@ -232,13 +232,6 @@ tr.scan-row td { color: var(--muted); }
 .log-summary { cursor: pointer; color: var(--muted); }
 .log { max-height: 320px; }
 
-/* ---- Footer ---- */
-footer {
-  max-width: min(1800px, 96vw); margin: 0 auto; padding: 16px 24px 32px;
-  color: var(--muted); font-size: 12px; display: flex; gap: 10px; flex-wrap: wrap;
-}
-footer code { color: var(--text); }
-
 @media (max-width: 760px) {
   .grid { grid-template-columns: 1fr; }
   .kv { grid-template-columns: 1fr; }

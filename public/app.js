@@ -747,7 +747,6 @@ async function init() {
     storageMode = info && info.database ? 'db' : 'none';
     $('connDot').className = 'dot ok';
     $('connText').textContent = 'connected';
-    $('serverInfo').textContent = `${info.nodeVersion} · region ${info.region || '?'} · uptime ${info.uptimeSec}s · db ${info.database ? 'on' : 'off'}`;
     log(`Connected to server (database: ${dbAvailable() ? 'on' : 'off'}).`);
   } catch (_) {
     storageMode = 'none';
