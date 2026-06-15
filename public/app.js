@@ -437,11 +437,6 @@ async function deleteSnapshotRecord(id) {
   if (!res.ok && res.status !== 204) throw new Error('delete ' + res.status);
 }
 
-async function clearSnapshotRecords() {
-  const res = await fetch('/api/snapshots', { method: 'DELETE' });
-  if (!res.ok && res.status !== 204) throw new Error('clear ' + res.status);
-}
-
 const GROUP_KEY = 'pptester.group.v1'; // current scan-group number (relates scans)
 function currentGroup() {
   const v = parseInt($('scanGroup').value, 10);
@@ -649,14 +644,31 @@ function scanRow(s, baseline) {
   return tr;
 }
 
-function groupHeadRow(name, verdict) {
+function groupHeadRow(name, verdict, onDelete) {
   const tr = document.createElement('tr');
   tr.className = 'group-head';
   const td = document.createElement('td');
   td.colSpan = 8;
-  td.innerHTML = `<b></b> <span class="verdict-badge v-${verdict.level}"></span>`;
-  td.querySelector('b').textContent = name;
-  td.querySelector('.verdict-badge').textContent = verdict.text;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'group-head-row';
+
+  const left = document.createElement('span');
+  const b = document.createElement('b'); b.textContent = name;
+  const badge = document.createElement('span');
+  badge.className = 'verdict-badge v-' + verdict.level;
+  badge.textContent = verdict.text;
+  left.appendChild(b); left.appendChild(document.createTextNode(' ')); left.appendChild(badge);
+
+  const del = document.createElement('button');
+  del.className = 'group-del';
+  del.textContent = '✕ delete group';
+  del.title = 'Delete all scans in this group';
+  del.onclick = onDelete;
+
+  wrap.appendChild(left);
+  wrap.appendChild(del);
+  td.appendChild(wrap);
   tr.appendChild(td);
   return tr;
 }
@@ -681,7 +693,12 @@ function renderResults(list) {
     const proxy = medianOf(scans.filter((s) => s.proxied === true));
     const verdict = groupVerdict(direct, proxy, tol);
 
-    body.appendChild(groupHeadRow(g === 0 ? 'Ungrouped' : 'Group ' + g, verdict));
+    const gname = g === 0 ? 'Ungrouped' : 'Group ' + g;
+    body.appendChild(groupHeadRow(gname, verdict, async () => {
+      if (!confirm(`Delete all ${scans.length} scan(s) in ${gname}?`)) return;
+      try { for (const s of scans) await deleteSnapshotRecord(snapId(s)); await refreshSnapshots(); }
+      catch (err) { log('Delete failed: ' + err.message); }
+    }));
     if (direct) body.appendChild(medianRow(direct, 'Direct baseline', 'direct', 'px-no', null));
     if (proxy) body.appendChild(medianRow(proxy, 'With proxy', 'proxy', 'px-yes', direct));
     if (showScans) scans.forEach((s) => body.appendChild(scanRow(s, direct)));
@@ -776,13 +793,6 @@ async function init() {
 
   $('showScans').onchange = () => renderResults(snapshotsCache);
   ['latTol', 'ttfbTol', 'thrTol'].forEach((id) => { $(id).onchange = () => renderResults(snapshotsCache); });
-
-  $('clearSnapshots').onclick = async () => {
-    if (!dbAvailable()) return;
-    if (!confirm('Delete all scans?')) return;
-    try { await clearSnapshotRecords(); await refreshSnapshots(); }
-    catch (err) { log('Clear failed: ' + err.message); }
-  };
 
   // Initial proxy/connection read so the dashboard isn't empty.
   runConnInfo().catch(() => {});

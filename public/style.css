@@ -202,6 +202,10 @@ tr.median-row { background: rgba(79,157,255,.10); }
 tr.median-row td { font-weight: 600; }
 tr.group-head td { background: var(--panel-2); border-top: 2px solid var(--border); padding-top: 9px; padding-bottom: 9px; }
 tr.scan-row td { color: var(--muted); }
+.group-head-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.group-del { background: transparent; border: 1px solid transparent; color: var(--muted);
+  cursor: pointer; font-size: 12px; padding: 2px 8px; border-radius: 6px; }
+.group-del:hover { border-color: var(--bad); color: var(--bad); background: var(--bg); }
 
 .verdict-badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 9px; border-radius: 999px; margin-left: 8px; vertical-align: middle; }
 .v-good { background: rgba(63,185,80,.15); color: var(--good); border: 1px solid var(--good); }

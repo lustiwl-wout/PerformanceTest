@@ -86,8 +86,9 @@ for local development.
 5. The results table groups scans by **Group**: each group shows its **Direct baseline**
    median and **With proxy** median (with the **Δ**), plus a **verdict** (good / not good)
    based on **per-metric tolerances** (Settings → Latency / TTFB / Throughput, default 30%
-   each; TLS is shown but not judged). Tick **Show individual scans** to edit — re-tag
-   (click the Proxy cell), rename (✎) or delete (✕) a scan.
+   each; TLS is shown but not judged). Delete a whole group from its header
+   (**✕ delete group**); tick **Show individual scans** to re-tag (click the Proxy
+   cell), rename (✎) or delete (✕) a single scan.
 
 > Absolute numbers include your distance to the server, so they don't reveal the
 > proxy on their own — **the difference vs. the direct baseline is the answer.**
