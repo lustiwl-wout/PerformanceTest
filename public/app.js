@@ -368,7 +368,7 @@ function renderSummary() {
     if (hdrs.length) add('warn', `Proxy headers present: ${hdrs.join(', ')}.`);
   }
 
-  add('good', 'To measure the proxy: save this run, run again WITHOUT the proxy, mark the no-proxy run as ◎ baseline. The Δ in the table is then the proxy\'s impact.');
+  add('good', 'To measure the proxy: tag each run with the “Through the proxy” box and save it. Your direct runs are combined into a median baseline, and the Δ on each with-proxy row is its impact.');
 
   for (const it of items) {
     const li = document.createElement('li');
@@ -383,18 +383,34 @@ function renderSummary() {
  * Snapshot storage — PostgreSQL only (the database is the source of truth)
  * ========================================================== */
 
-const BASE_KEY = 'pptester.baselineId.v1'; // which snapshot id is the baseline (UI preference)
-
 let storageMode = 'none';   // 'db' | 'none' (resolved in init())
 let snapshotsCache = [];
 
 function dbAvailable() { return storageMode === 'db'; }
 function snapId(s) { return s.id; }
 
-function getBaselineId() { return localStorage.getItem(BASE_KEY); }
-function setBaselineId(id) {
-  if (id == null) localStorage.removeItem(BASE_KEY);
-  else localStorage.setItem(BASE_KEY, String(id));
+function median(vals) {
+  const s = vals.filter((v) => typeof v === 'number' && isFinite(v)).sort((a, b) => a - b);
+  if (!s.length) return null;
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+}
+
+// The baseline is the MEDIAN of all direct (no-proxy) scans — i.e. every
+// snapshot whose "Through the proxy" box was unticked. Each with-proxy row is
+// then compared against this median baseline.
+function computeDirectBaseline(list) {
+  const directs = list.filter((s) => s.proxied === false);
+  if (!directs.length) return null;
+  const med = (get) => median(directs.map(get));
+  return {
+    n: directs.length,
+    latency: { median: med((s) => s.latency && s.latency.median), jitter: med((s) => s.latency && s.latency.jitter) },
+    download: med((s) => s.download),
+    upload: med((s) => s.upload),
+    ttfb: med((s) => s.ttfb),
+    tls: med((s) => s.tls),
+  };
 }
 
 async function listSnapshots() {
@@ -482,6 +498,77 @@ function appendProxyCell(tr, proxied) {
   tr.appendChild(td);
 }
 
+// Synthetic, highlighted row showing the median-of-direct-scans baseline.
+function baselineRow(b) {
+  const tr = document.createElement('tr');
+  tr.className = 'baseline-row';
+
+  const tdLabel = document.createElement('td');
+  tdLabel.textContent = 'Direct baseline';
+  const tag = document.createElement('span');
+  tag.className = 'baseline-tag';
+  tag.textContent = 'median of ' + b.n;
+  tdLabel.appendChild(tag);
+  tr.appendChild(tdLabel);
+
+  const tdPx = document.createElement('td');
+  tdPx.innerHTML = '<span class="px-no">median</span>';
+  tr.appendChild(tdPx);
+
+  appendCell(tr, '—');
+  appendMetricCell(tr, b.latency.median, null, 'ms');
+  appendCell(tr, b.latency.jitter != null ? fmt(b.latency.jitter) : '–');
+  appendMetricCell(tr, b.download, null, 'pct');
+  appendMetricCell(tr, b.upload, null, 'pct');
+  appendMetricCell(tr, b.ttfb, null, 'ms');
+  appendMetricCell(tr, b.tls, null, 'ms');
+  appendCell(tr, '');
+  return tr;
+}
+
+function snapshotRow(s, baseline) {
+  // The Δ (proxy impact) is shown on with-proxy rows, vs the direct-median baseline.
+  const cmp = (baseline && s.proxied === true) ? baseline : null;
+  const id = snapId(s);
+  const tr = document.createElement('tr');
+
+  appendCell(tr, s.label);
+  appendProxyCell(tr, s.proxied);
+  appendCell(tr, new Date(s.ts).toLocaleString());
+  appendMetricCell(tr, s.latency ? s.latency.median : null, cmp && cmp.latency ? cmp.latency.median : null, 'ms');
+  appendCell(tr, s.latency ? fmt(s.latency.jitter) : '–');
+  appendMetricCell(tr, s.download, cmp ? cmp.download : null, 'pct');
+  appendMetricCell(tr, s.upload, cmp ? cmp.upload : null, 'pct');
+  appendMetricCell(tr, s.ttfb, cmp ? cmp.ttfb : null, 'ms');
+  appendMetricCell(tr, s.tls, cmp ? cmp.tls : null, 'ms');
+
+  const tdActions = document.createElement('td');
+  tdActions.className = 'snap-actions';
+
+  const editBtn = document.createElement('button');
+  editBtn.className = 'snap-edit'; editBtn.textContent = '✎'; editBtn.title = 'Rename';
+  editBtn.onclick = async () => {
+    const name = prompt('New label for this snapshot:', s.label);
+    if (name == null) return;
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    try { await renameSnapshotRecord(id, trimmed); await refreshSnapshots(); log('Snapshot renamed to: ' + trimmed); }
+    catch (err) { log('Rename failed: ' + err.message); }
+  };
+
+  const delBtn = document.createElement('button');
+  delBtn.className = 'snap-del'; delBtn.textContent = '✕'; delBtn.title = 'Delete';
+  delBtn.onclick = async () => {
+    try { await deleteSnapshotRecord(id); await refreshSnapshots(); }
+    catch (err) { log('Delete failed: ' + err.message); }
+  };
+
+  tdActions.appendChild(editBtn);
+  tdActions.appendChild(delBtn);
+  tr.appendChild(tdActions);
+  return tr;
+}
+
 function renderSnapshotList(list) {
   const body = $('snapBody');
   body.innerHTML = '';
@@ -494,73 +581,17 @@ function renderSnapshotList(list) {
     return;
   }
 
-  const baseId = getBaselineId();
-  const baseline = list.find((s) => String(snapId(s)) === String(baseId)) || null;
-
-  list.forEach((s) => {
-    const id = snapId(s);
-    const isBase = !!(baseline && String(id) === String(snapId(baseline)));
-    const cmp = baseline && !isBase ? baseline : null;
+  const baseline = computeDirectBaseline(list);
+  if (baseline) {
+    body.appendChild(baselineRow(baseline));
+  } else {
     const tr = document.createElement('tr');
-    if (isBase) tr.className = 'baseline-row';
-
-    // Label (+ baseline tag)
-    const tdLabel = document.createElement('td');
-    tdLabel.textContent = s.label;
-    if (isBase) {
-      const tag = document.createElement('span');
-      tag.className = 'baseline-tag';
-      tag.textContent = 'baseline';
-      tdLabel.appendChild(tag);
-    }
-    tr.appendChild(tdLabel);
-
-    appendProxyCell(tr, s.proxied);
-    appendCell(tr, new Date(s.ts).toLocaleString());
-    appendMetricCell(tr, s.latency ? s.latency.median : null, cmp && cmp.latency ? cmp.latency.median : null, 'ms');
-    appendCell(tr, s.latency ? fmt(s.latency.jitter) : '–');
-    appendMetricCell(tr, s.download, cmp ? cmp.download : null, 'pct');
-    appendMetricCell(tr, s.upload, cmp ? cmp.upload : null, 'pct');
-    appendMetricCell(tr, s.ttfb, cmp ? cmp.ttfb : null, 'ms');
-    appendMetricCell(tr, s.tls, cmp ? cmp.tls : null, 'ms');
-
-    // Actions: baseline / rename / delete
-    const tdActions = document.createElement('td');
-    tdActions.className = 'snap-actions';
-
-    const baseBtn = document.createElement('button');
-    baseBtn.className = 'snap-base' + (isBase ? ' active' : '');
-    baseBtn.textContent = '◎';
-    baseBtn.title = isBase ? 'Unset baseline' : 'Set as direct (no-proxy) baseline';
-    baseBtn.onclick = () => { setBaselineId(isBase ? null : id); renderSnapshotList(snapshotsCache); };
-
-    const editBtn = document.createElement('button');
-    editBtn.className = 'snap-edit'; editBtn.textContent = '✎'; editBtn.title = 'Rename';
-    editBtn.onclick = async () => {
-      const name = prompt('New label for this snapshot:', s.label);
-      if (name == null) return;
-      const trimmed = name.trim();
-      if (!trimmed) return;
-      try { await renameSnapshotRecord(id, trimmed); await refreshSnapshots(); log('Snapshot renamed to: ' + trimmed); }
-      catch (err) { log('Rename failed: ' + err.message); }
-    };
-
-    const delBtn = document.createElement('button');
-    delBtn.className = 'snap-del'; delBtn.textContent = '✕'; delBtn.title = 'Delete';
-    delBtn.onclick = async () => {
-      try {
-        await deleteSnapshotRecord(id);
-        if (String(id) === String(getBaselineId())) setBaselineId(null);
-        await refreshSnapshots();
-      } catch (err) { log('Delete failed: ' + err.message); }
-    };
-
-    tdActions.appendChild(baseBtn);
-    tdActions.appendChild(editBtn);
-    tdActions.appendChild(delBtn);
-    tr.appendChild(tdActions);
+    tr.className = 'empty';
+    tr.innerHTML = '<td colspan="10">No direct (no-proxy) scans yet — untick “Through the proxy”, run and save one to form the baseline.</td>';
     body.appendChild(tr);
-  });
+  }
+
+  list.forEach((s) => body.appendChild(snapshotRow(s, baseline)));
 }
 
 async function refreshSnapshots() {
@@ -652,7 +683,7 @@ async function init() {
   $('clearSnapshots').onclick = async () => {
     if (!dbAvailable()) return;
     if (!confirm('Delete all snapshots?')) return;
-    try { await clearSnapshotRecords(); setBaselineId(null); await refreshSnapshots(); }
+    try { await clearSnapshotRecords(); await refreshSnapshots(); }
     catch (err) { log('Clear failed: ' + err.message); }
   };
 

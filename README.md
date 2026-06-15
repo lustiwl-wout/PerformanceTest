@@ -77,19 +77,20 @@ for local development.
 3. Click **"Run all tests"**, then **"Save snapshot"** → label it e.g. `With Zscaler`.
 4. Run the test again **without** the proxy (bypass / different network / hotspot),
    untick the box, and save it as `Direct`.
-5. In the **snapshots** table, mark the no-proxy run as the ◎ **baseline**. The
-   **Δ** on Latency / TTFB / TLS is then the proxy's *added* cost, and the
-   **Proxy** column (✓ / ✗) records which run was which.
+5. Your direct (no-proxy) runs are combined into a **median baseline** row, and the
+   **Δ** on each with-proxy row shows the proxy's *added* cost. The **Proxy** column
+   (✓ / ✗) records which run was which.
 
 > Absolute numbers include your distance to the server, so they don't reveal the
-> proxy on their own — **the difference between the two runs is the answer.**
-> Rename a snapshot with ✎, set the ◎ baseline, or remove it with ✕.
+> proxy on their own — **the difference vs. the direct baseline is the answer.**
+> Rename a snapshot with ✎ or remove it with ✕.
 
 ## Reading the comparison
 
 The tool deliberately shows **raw differences**, not pass/fail verdicts. Absolute
-numbers are dominated by your distance to the server, so only the **Δ vs. the ◎
-baseline** matters:
+numbers are dominated by your distance to the server, so only the **Δ vs. the
+direct-median baseline** matters (the baseline is the median of all your
+direct/no-proxy scans):
 
 - **Latency / TTFB / TLS** — the millisecond difference the proxy adds.
 - **Download / Upload** — the % change vs. the baseline.
