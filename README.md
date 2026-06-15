@@ -70,6 +70,10 @@ the value in the dashboard (Environment) rather than storing it in the repo. TLS
 enabled automatically for non-local hosts; a `localhost` URL connects without TLS
 for local development.
 
+> **One-time reset:** set `RESET_DB=true` (e.g. in the Render dashboard) to empty
+> the `snapshots` table on the next startup, then remove the variable again. While
+> it is set, the table is wiped on *every* restart.
+
 ## How to use it
 
 1. Open the site **through** your normal (Zscaler) connection.

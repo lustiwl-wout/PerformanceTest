@@ -78,11 +78,17 @@ async function initDb() {
         user_agent TEXT
       );
     `);
+    // One-time wipe: set RESET_DB=true to empty the table on startup, then
+    // remove the variable again (while set, it wipes on every restart).
+    if (process.env.RESET_DB === 'true') {
+      await pool.query('TRUNCATE TABLE snapshots RESTART IDENTITY');
+      console.warn('RESET_DB=true — emptied the snapshots table. Remove this env var so it does not wipe on every restart.');
+    }
     dbReady = true;
     console.log('Database ready — snapshots will be stored in PostgreSQL.');
   } catch (err) {
     dbReady = false;
-    console.error('Database init failed (falling back to localStorage):', err.message);
+    console.error('Database init failed (snapshots disabled):', err.message);
   }
 }
 
