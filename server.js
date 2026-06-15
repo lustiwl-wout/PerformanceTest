@@ -5,6 +5,10 @@ const path = require('path');
 const crypto = require('crypto');
 const { Pool } = require('pg');
 
+console.log(`Boot: node ${process.version}, PORT=${process.env.PORT || '(unset)'}, DATABASE_URL=${process.env.DATABASE_URL ? 'set' : 'unset'}`);
+process.on('uncaughtException', (e) => { console.error('uncaughtException:', e); process.exit(1); });
+process.on('unhandledRejection', (e) => { console.error('unhandledRejection:', e && e.message ? e.message : e); });
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -302,6 +306,7 @@ app.use(express.static(path.join(__dirname, 'public'), {
   cacheControl: false,
 }));
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Proxy performance tester listening on :${PORT}`);
 });
+server.on('error', (err) => { console.error('Server listen error:', err.message); process.exit(1); });
